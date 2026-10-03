@@ -1,11 +1,15 @@
 ---
 # ==========================================================
-# Helm リポジトリの冪等登録 & 変更時更新 (共通タスク)
+# Helm リポジトリの冪等登録 & キャッシュ鮮度管理 (共通タスク)
 #
 # 必須変数:
 #   helm_repos: リポジトリ定義のリスト
 #     - name: <ローカルエイリアス (識別子・リテラル可)>
 #       url:  <リポジトリ URL (helm_repo_* 変数を参照)>
+#
+# オプション変数:
+#   helm_repo_cache_ttl:    キャッシュインデックス有効期間 (秒, default: 1800)
+#   helm_repo_force_update: 強制更新フラグ (default: false)
 #
 # 使い方 (ロール tasks から相対パスで静的インポート):
 #   - name: Helm リポジトリを追加 (foo, bar)
@@ -15,31 +19,69 @@
 #         - name: foo
 #           url: "{{ helm_repo_foo }}"
 # ==========================================================
-- name: Helm リポジトリを冪等登録
+- name: Helm リポジトリを冪等登録 & キャッシュ鮮度チェック
   ansible.builtin.shell: |
     set -e
-    helm_repo_add() {
+    ttl="{{ helm_repo_cache_ttl | default(1800) }}"
+    force="{{ helm_repo_force_update | default(false) | bool }}"
+    cache_dir="${HELM_CACHE_HOME:-$HOME/.cache/helm}/repository"
+    now=$(date +%s)
+
+    helm_repo_check() {
       local name="$1" url="$2"
+      local index_file="${cache_dir}/${name}-index.yaml"
+      local need=0
+
       if helm repo list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$name"; then
         local current
         current=$(helm repo list 2>/dev/null | awk -v n="$name" '$1==n {print $2}')
-        if [ "$current" = "$url" ]; then
-          echo "skip:$name"
-          return 0
+        if [ "$current" != "$url" ]; then
+          helm repo remove "$name" >/dev/null 2>&1 || true
+          helm repo add "$name" "$url" >/dev/null 2>&1
+          echo "added:$name"
+          need=1
         fi
-        helm repo remove "$name" >/dev/null 2>&1 || true
+      else
+        helm repo add "$name" "$url" >/dev/null 2>&1
+        echo "added:$name"
+        need=1
       fi
-      helm repo add "$name" "$url"
-      echo "added:$name"
+
+      if [ "$need" -eq 0 ]; then
+        if [ "$force" = "True" ] || [ "$force" = "true" ]; then
+          echo "stale:$name"
+          need=1
+        elif [ ! -f "$index_file" ]; then
+          echo "stale:$name"
+          need=1
+        else
+          local mtime age
+          mtime=$(stat -c %Y "$index_file" 2>/dev/null || stat -f %m "$index_file" 2>/dev/null || echo 0)
+          age=$(( now - mtime ))
+          if [ "$age" -ge "$ttl" ]; then
+            echo "stale:$name"
+            need=1
+          else
+            echo "ok:$name"
+          fi
+        fi
+      fi
+
+      if [ "$need" -eq 1 ]; then
+        echo "update_target:$name"
+      fi
     }
     {% for repo in helm_repos %}
-    helm_repo_add {{ repo.name }} {{ repo.url }}
+    helm_repo_check {{ repo.name }} {{ repo.url }}
     {% endfor %}
-  register: helm_repo_add
-  changed_when: "'added:' in helm_repo_add.stdout"
+  register: helm_repo_check
+  changed_when: "'added:' in helm_repo_check.stdout"
 
-# 使用するリポジトリのみ更新 (未変更時はスキップしてネットワーク負荷とタイムアウトを防止)
-- name: Helm リポジトリを更新 (登録変更時のみ)
-  ansible.builtin.command: "helm repo update {{ helm_repos | map(attribute='name') | join(' ') }}"
+# 更新が必要なリポジトリ (新規追加・URL変更・インデックス未存在・TTL超過・強制更新) のみ更新
+- name: Helm リポジトリを更新 (必要時のみ)
+  ansible.builtin.command: "helm repo update {{ helm_repo_update_targets }}"
+  vars:
+    helm_repo_update_targets: "{{ (helm_repo_check.stdout_lines | select('match', '^update_target:') | map('regex_replace', '^update_target:', '') | list) | join(' ') }}"
+  when: helm_repo_update_targets | length > 0
   changed_when: false
-  when: helm_repo_add.changed
+

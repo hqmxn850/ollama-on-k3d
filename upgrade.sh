@@ -282,26 +282,25 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
   )
 
 
-  # 依存 Helm リポジトリの確認 & 追加 (登録済み同 URL はスキップ、未登録・URL 変更時のみ追加 & 更新)
+  # 依存 Helm リポジトリの確認 & 追加・最新インデックス取得
   repos_to_update=()
   for r_name in "${!HELM_REPOS[@]}"; do
     r_url="${HELM_REPOS[$r_name]}"
     if helm repo list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$r_name"; then
       current=$(helm repo list 2>/dev/null | awk -v n="$r_name" '$1==n {print $2}')
-      if [ "$current" = "$r_url" ]; then
-        continue
+      if [ "$current" != "$r_url" ]; then
+        helm repo remove "$r_name" >/dev/null 2>&1 || true
+        helm repo add "$r_name" "$r_url" >/dev/null 2>&1 || true
       fi
-      helm repo remove "$r_name" >/dev/null 2>&1 || true
+    else
+      helm repo add "$r_name" "$r_url" >/dev/null 2>&1 || true
     fi
-    helm repo add "$r_name" "$r_url" >/dev/null 2>&1 || true
     repos_to_update+=("$r_name")
   done
 
   if [ ${#repos_to_update[@]} -gt 0 ]; then
     log "Helm リポジトリを更新中 (${repos_to_update[*]})..."
     helm repo update "${repos_to_update[@]}" >/dev/null 2>&1 || true
-  else
-    log "全 Helm リポジトリは最新で登録済みです (更新スキップ)"
   fi
 
   # アップグレード対象 Helm リリース定義
