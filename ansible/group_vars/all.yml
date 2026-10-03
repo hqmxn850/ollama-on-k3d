@@ -153,6 +153,7 @@ keycloak_pg_host: "{{ lookup('env', 'KEYCLOAK_PG_HOST') | default('keycloak-pg-p
 keycloak_chart_version: "{{ lookup('env', 'KEYCLOAK_CHART_VERSION') | default('3.0.12', true) }}"
 keycloak_pg_password: "{{ lookup('env', 'KEYCLOAK_PG_PASSWORD') | default('keycloak-pg-2026', true) }}"
 keycloak_db_password: "{{ lookup('env', 'KEYCLOAK_DB_PASSWORD') | default('keycloak-db-2026', true) }}"
+keycloak_pg_fips: "{{ lookup('env', 'KEYCLOAK_PG_FIPS') | default('restricted', true) }}"
 keycloak_pg_shared_buffers: "{{ lookup('env', 'KEYCLOAK_PG_SHARED_BUFFERS') | default('512MB', true) }}"
 keycloak_pg_effective_cache_size: "{{ lookup('env', 'KEYCLOAK_PG_EFFECTIVE_CACHE_SIZE') | default('1536MB', true) }}"
 keycloak_pg_work_mem: "{{ lookup('env', 'KEYCLOAK_PG_WORK_MEM') | default('16MB', true) }}"

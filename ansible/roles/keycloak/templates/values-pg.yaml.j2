@@ -1,6 +1,9 @@
 # PostgreSQL (bitnami/postgresql): 単一インスタンス構成
 # - primary.replicaCount は 1 固定 (単一インスタンス構成)
 # - アプリ接続は chart が作成する Service (keycloak-pg-postgresql) 経由
+global:
+  defaultFips: {{ keycloak_pg_fips | default('restricted') | quote }}
+
 image:
   repository: bitnamilegacy/postgresql
 

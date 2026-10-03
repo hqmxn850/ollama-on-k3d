@@ -383,19 +383,31 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
           kubectl apply -f "${GITHUB_BASE_URL:-https://github.com}/cert-manager/cert-manager/releases/download/${latest_ver}/cert-manager.crds.yaml" >/dev/null 2>&1 || true
         fi
 
-        # アップグレード試行 (既存 values を再利用、失敗時は values 抽出で再試行)
+        # アップグレード試行 (新チャートのデフォルト値を反映しつつ既存 values を再利用)
         upgraded_ok=false
         helm_err=$(mktemp)
-        if helm upgrade "$r_name" "$r_chart" --namespace "$r_ns" --reuse-values --wait --timeout="${HELM_TIMEOUT:-15m}" 2>"$helm_err"; then
+        upgrade_flags=(--namespace "$r_ns" --reset-then-reuse-values --wait --timeout="${HELM_TIMEOUT:-15m}")
+        if [[ "$r_name" == "keycloak-pg" ]]; then
+          upgrade_flags+=(--set "global.defaultFips=restricted")
+        fi
+
+        if helm upgrade "$r_name" "$r_chart" "${upgrade_flags[@]}" 2>"$helm_err"; then
           upgraded_ok=true
         else
-          warn "  -> --reuse-values でのアップグレードに失敗: $(tail -1 "$helm_err")"
+          warn "  -> 初期アップグレードに失敗: $(tail -1 "$helm_err")"
+          # FIPS または必須パラメータ不足エラーの自動修復再試行
+          extra_args=()
+          if grep -qi "defaultFips\|fips" "$helm_err" || [[ "$r_name" == "keycloak-pg" ]]; then
+            extra_args=(--set "global.defaultFips=restricted")
+          fi
           tmp_vals=$(mktemp)
           helm get values "$r_name" -n "$r_ns" > "$tmp_vals" 2>/dev/null || true
-          if [[ -s "$tmp_vals" ]] && helm upgrade "$r_name" "$r_chart" --namespace "$r_ns" -f "$tmp_vals" --wait --timeout="${HELM_TIMEOUT:-15m}" 2>"$helm_err"; then
+          if [[ -s "$tmp_vals" ]] && helm upgrade "$r_name" "$r_chart" --namespace "$r_ns" -f "$tmp_vals" "${extra_args[@]}" --wait --timeout="${HELM_TIMEOUT:-15m}" 2>"$helm_err"; then
+            upgraded_ok=true
+          elif helm upgrade "$r_name" "$r_chart" --namespace "$r_ns" --reuse-values "${extra_args[@]}" --wait --timeout="${HELM_TIMEOUT:-15m}" 2>"$helm_err"; then
             upgraded_ok=true
           else
-            warn "  -> values 抽出再試行でも失敗: $(tail -1 "$helm_err")"
+            warn "  -> 再試行でも失敗: $(tail -1 "$helm_err")"
           fi
           rm -f "$tmp_vals"
         fi
