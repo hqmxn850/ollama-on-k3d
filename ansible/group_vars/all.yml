@@ -261,7 +261,7 @@ ollama_readiness_delay_seconds: "{{ lookup('env', 'OLLAMA_READINESS_DELAY_SECOND
 ollama_readiness_timeout_seconds: "{{ lookup('env', 'OLLAMA_READINESS_TIMEOUT_SECONDS') | default(5, true) | int }}"
 ollama_readiness_failure_threshold: "{{ lookup('env', 'OLLAMA_READINESS_FAILURE_THRESHOLD') | default(3, true) | int }}"
 ollama_readiness_period_seconds: "{{ lookup('env', 'OLLAMA_READINESS_PERIOD_SECONDS') | default(10, true) | int }}"
-ollama_default_model: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL') | default('qwen3.8:27b', true) }}"
+ollama_default_model: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL') | default('FieldMouse-AI/qwen3.8:27B', true) }}"
 ollama_default_model_auto_setup: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_AUTO_SETUP') | default(true, true) | bool }}"
 ollama_default_model_setup_retries: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_SETUP_RETRIES') | default(30, true) | int }}"
 ollama_default_model_setup_retry_interval: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL') | default(2, true) | int }}"

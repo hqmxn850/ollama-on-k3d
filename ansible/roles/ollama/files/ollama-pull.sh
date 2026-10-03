@@ -269,114 +269,6 @@ if [[ "${ACTION}" == "delete" ]]; then
   delete_models
 fi
 
-# ホスト上のローカルキャッシュからモデルをインポートする関数
-try_import_from_host_cache() {
-  local model="$1"
-  local sudo_cmd=""
-  if [[ $EUID -ne 0 ]] && command -v sudo &>/dev/null; then
-    sudo_cmd="sudo"
-  fi
-
-  local name_tag="$model"
-  local name tag
-  if [[ "$name_tag" == *":"* ]]; then
-    tag="${name_tag##*:}"
-    name="${name_tag%:*}"
-  else
-    tag="latest"
-    name="$name_tag"
-  fi
-
-  local registry="registry.ollama.ai"
-  if [[ "$name" == *"/"* ]]; then
-    local first_part="${name%%/*}"
-    if [[ "$first_part" == *"."* || "$first_part" == *":"* ]]; then
-      registry="$first_part"
-      name="${name#*/}"
-    fi
-  else
-    name="library/${name}"
-  fi
-
-  local rel_manifest="manifests/${registry}/${name}/${tag}"
-
-  local cache_dirs=(
-    "/usr/share/ollama/.ollama/models"
-    "${HOME}/.ollama/models"
-    "/var/lib/ollama/.ollama/models"
-  )
-
-  local found_cache_dir=""
-  for cdir in "${cache_dirs[@]}"; do
-    if ${sudo_cmd} test -f "${cdir}/${rel_manifest}" 2>/dev/null; then
-      found_cache_dir="$cdir"
-      break
-    fi
-  done
-
-  if [[ -z "${found_cache_dir}" ]]; then
-    return 1
-  fi
-
-  log "ホスト上にモデル '${model}' のキャッシュを検出しました: ${found_cache_dir}"
-  log "キャッシュファイルの整合性を検証中..."
-
-  local file_list
-  if ! file_list=$(${sudo_cmd} python3 - "${found_cache_dir}" "${rel_manifest}" <<'PYEOF' 2>/dev/null
-import json, sys, os
-
-cache_dir = sys.argv[1]
-rel_manifest = sys.argv[2]
-manifest_path = os.path.join(cache_dir, rel_manifest)
-
-try:
-    with open(manifest_path, "r") as f:
-        data = json.load(f)
-except Exception:
-    sys.exit(1)
-
-files = [rel_manifest]
-
-def to_blob(d):
-    return "blobs/" + d.replace(":", "-")
-
-config_digest = data.get("config", {}).get("digest")
-if config_digest:
-    files.append(to_blob(config_digest))
-
-for layer in data.get("layers", []):
-    d = layer.get("digest")
-    if d:
-        files.append(to_blob(d))
-
-for f in files:
-    full = os.path.join(cache_dir, f)
-    if not os.path.isfile(full):
-        sys.exit(1)
-
-for f in files:
-    print(f)
-PYEOF
-  ); then
-    warn "キャッシュファイルの検証に失敗しました。通常ダウンロードに移行します。"
-    return 1
-  fi
-
-  log "ホストのキャッシュから Ollama Pod へのモデル転送を開始します (高速インポート)..."
-  if printf '%s\n' "${file_list}" | ${sudo_cmd} tar -C "${found_cache_dir}" -cf - -T - \
-    | kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- tar -xf - -C /root/.ollama/models 2>/dev/null; then
-    
-    if kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama list 2>/dev/null \
-      | awk '{print $1}' | grep -qi "^${model}$"; then
-      succ "ホストのキャッシュからモデル '${model}' を正常にインポートしました。"
-      return 0
-    fi
-  fi
-
-  warn "キャッシュのインポート後にモデルが認識されなかったため、通常ダウンロードに移行します。"
-  return 1
-}
-
 # ==============================================================================
 # モデルダウンロード処理 (pull)
 # ==============================================================================
@@ -389,12 +281,7 @@ log "指定されたモデルのダウンロード (pull) を開始します (�
 for model in "${MODELS[@]}"; do
   CURRENT=$((CURRENT + 1))
   echo ""
-  log "[${CURRENT}/${TOTAL_MODELS}] モデル '${model}' の取得を開始します..."
-
-  # ホスト上のローカルキャッシュからの高速インポートを試行
-  if try_import_from_host_cache "${model}"; then
-    continue
-  fi
+  log "[${CURRENT}/${TOTAL_MODELS}] モデル '${model}' のダウンロードを開始します..."
 
   if [[ "${MODE}" == "exec" ]]; then
     # kubectl exec 経由 (標準の対話的進捗バー)
