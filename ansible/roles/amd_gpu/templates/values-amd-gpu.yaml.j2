@@ -16,6 +16,10 @@ dp:
     repository: {{ amd_gpu_device_plugin_repository | default('docker.io/rocm/k8s-device-plugin', true) }}
     tag: {{ amd_gpu_device_plugin_tag | default('1.31.0.9', true) | quote }}
 
-# PCI ベンダーフィルタによる GPU ノード限定配置
-# 本環境は全ノードが同一 GPU ホスト上のコンテナのため全ノード常駐 (無効)
-node_selector_enabled: {{ amd_gpu_node_selector_enabled | default(false) | bool | lower }}
+# Worker ノード限定配置 (AGENTS.md の配置ルール / node-role.kubernetes.io/worker)
+# chart 既定の PCI ラベルは NFD 未導入のため使えないため null で除去する
+node_selector_enabled: {{ amd_gpu_node_selector_enabled | default(true) | bool | lower }}
+node_selector:
+  feature.node.kubernetes.io/pci-0300_1002.present: null
+  kubernetes.io/arch: amd64
+  node-role.kubernetes.io/worker: "true"

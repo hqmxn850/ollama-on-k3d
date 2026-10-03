@@ -3,7 +3,7 @@
 # AMD GPU Device Plugin ロール
 #
 # ROCm 公式 Helm チャート (amd-gpu) を用いて AMD GPU device plugin をデプロイし、
-# クラスタ全ノードの kubelet に amd.com/gpu リソースを宣告させる。
+# Worker ノードの kubelet に amd.com/gpu リソースを宣告させる。
 # 前提条件: ホストの amdgpu カーネルドライバ、/dev/kfd・/dev/dri のノードへの
 # パススルー (k3d config.yaml で自動提供)。
 # ==============================================================================

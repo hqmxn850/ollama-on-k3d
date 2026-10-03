@@ -9,13 +9,13 @@
   changed_when: "'created' in create_mon_ns.stdout"
   failed_when: false
 
-- name: Rancher メトリクス収集用 API トークン Secret を作成・同期
+- name: Rancher メトリクス収集用 API トークン Secret を ServiceMonitor 名前空間へ作成・同期
   ansible.builtin.shell: |
     set -e
     TOKEN=$(kubectl get tokens.management.cattle.io -o jsonpath='{.items[0].metadata.name}:{.items[0].token}' 2>/dev/null || true)
     if [ -n "$TOKEN" ]; then
       kubectl create secret generic rancher-monitoring-token \
-        -n {{ monitoring_namespace | default('cattle-monitoring-system') }} \
+        -n {{ rancher_namespace | default('cattle-system') }} \
         --from-literal=token="$TOKEN" \
         --dry-run=client -o yaml | kubectl apply -f -
     fi
@@ -126,7 +126,7 @@
   failed_when: false
   changed_when: false
 
-- name: K3s コントロールプレーン (etcd, proxy, scheduler, controller-manager) メトリクスプロキシ & RBAC を適用
+- name: K3s コントロールプレーン (proxy, scheduler, controller-manager / etcd は datastore 設定時のみ) メトリクスプロキシ & RBAC を適用
   ansible.builtin.command: "kubectl apply -f -"
   args:
     stdin: "{{ lookup('template', 'k8s-controlplane-metrics-proxy.yaml.j2') }}"

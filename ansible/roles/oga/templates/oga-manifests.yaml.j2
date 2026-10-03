@@ -3,7 +3,7 @@
 # OnnxRuntime GenAI (OGA) Kubernetes Manifests
 # ==============================================================================
 
-# 1. PVC (CephFS モデルストレージ)
+# 1. PVC (モデルストレージ / storageClassName: {{ oga_storage_class | default('local-path') }})
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

@@ -18,7 +18,7 @@ net.ipv4.tcp_fastopen = {{ sysctl_tcp_fastopen | default(3) }}
 net.ipv4.tcp_tw_reuse = {{ sysctl_tcp_tw_reuse | default(1) }}
 net.ipv4.tcp_fin_timeout = {{ sysctl_tcp_fin_timeout | default(15) }}
 
-# TCP Keepalive (gRPC / etcd / DB 接続ハングの迅速検知)
+# TCP Keepalive (gRPC / API / DB 接続ハングの迅速検知)
 net.ipv4.tcp_keepalive_time = {{ sysctl_tcp_keepalive_time | default(600) }}
 net.ipv4.tcp_keepalive_intvl = {{ sysctl_tcp_keepalive_intvl | default(30) }}
 net.ipv4.tcp_keepalive_probes = {{ sysctl_tcp_keepalive_probes | default(5) }}
@@ -48,12 +48,12 @@ net.ipv4.neigh.default.gc_thresh3 = {{ sysctl_gc_thresh3 | default(16384) }}
 net.netfilter.nf_conntrack_max = {{ sysctl_nf_conntrack_max | default(1048576) }}
 net.netfilter.nf_conntrack_tcp_timeout_established = {{ sysctl_nf_conntrack_tcp_timeout_established | default(86400) }}
 
-# メモリ・スワップ・キャッシュ制御 (Kubernetes / Ceph / DB 最適化)
+# メモリ・スワップ・キャッシュ制御 (Kubernetes / DB 最適化)
 vm.swappiness = {{ sysctl_swappiness | default(1) }}
 vm.vfs_cache_pressure = {{ sysctl_vfs_cache_pressure | default(50) }}
 vm.overcommit_memory = {{ sysctl_overcommit_memory | default(1) }}
 
-# I/O 集中時のハング緩和 (CDI / Ceph 書き込み対策)
+# I/O 集中時のハング緩和 (コンテナ書き込み対策)
 vm.dirty_background_ratio = {{ sysctl_dirty_background_ratio | default(5) }}
 vm.dirty_ratio = {{ sysctl_dirty_ratio | default(10) }}
 

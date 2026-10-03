@@ -127,7 +127,7 @@ insert_ca() {
   TMP_DIR=$(mktemp -d /tmp/k3d-ca-XXXXXX)
   trap '[[ -n "${TMP_DIR:-}" && -d "${TMP_DIR:-}" ]] && rm -rf "${TMP_DIR}"' EXIT
 
-  # 1. cert-manager internal-root-ca の抽出 (Keycloak, Harbor, Grafana, Ceph, pgAdmin 用)
+  # 1. cert-manager internal-root-ca の抽出 (Keycloak, pgAdmin, Grafana 等の内部 TLS サービス用)
   log "cert-manager の内部ルート CA 証明書を抽出中..."
   kubectl get secret -n cert-manager internal-root-ca-secret -o jsonpath='{.data.tls\.crt}' 2>/dev/null | base64 -d > "${TMP_DIR}/k3d-internal-root-ca.crt" || true
 

@@ -61,13 +61,13 @@
   changed_when: false
   become: true
 
-- name: Server ノードと Worker ノードの CPU コア配分を適用 (Server 8コア / Worker 24コア)
+- name: "Server ノードと Worker ノードの CPU コア配分を適用 (Server {{ server_cpus | default(8) }}コア / Worker {{ agent_cpus | default(24) }}コア)"
   ansible.builtin.shell: |
-    # Server ノードコンテナ更新 (8コア)
+    # Server ノードコンテナ更新 ({{ server_cpus | default(8) }}コア)
     for c in $(podman ps --filter "name=k3d-{{ cluster_name }}-server" --format "{{ '{{' }}.Names{{ '}}' }}"); do
       podman update --cpus {{ server_cpus | default(8) }} {% if server_cpuset | default('') | length > 0 %}--cpuset-cpus {{ server_cpuset }}{% endif %} "$c" || true
     done
-    # Worker (Agent) ノードコンテナ更新 (24コア)
+    # Worker (Agent) ノードコンテナ更新 ({{ agent_cpus | default(24) }}コア)
     for c in $(podman ps --filter "name=k3d-{{ cluster_name }}-agent" --format "{{ '{{' }}.Names{{ '}}' }}"); do
       podman update --cpus {{ agent_cpus | default(24) }} {% if agent_cpuset | default('') | length > 0 %}--cpuset-cpus {{ agent_cpuset }}{% endif %} "$c" || true
     done
@@ -171,7 +171,7 @@
   become: true
   changed_when: false
 
-# --- サーバーノード固定 IP 確保 (etcd ピア URL ずれ防止) ---
+# --- サーバーノード固定 IP 確保 ---
 - name: サーバーノードの固定 IP 確保 (10.89.0.3〜)
   ansible.builtin.shell: |
     set -euo pipefail
@@ -214,8 +214,15 @@
     mode: '0644'
 
 - name: registries.yaml のチェックサムを計算
+  ansible.builtin.command: "sha256sum /tmp/k3d-registries-{{ cluster_name }}.yaml"
+  register: registries_local_sha_cmd
+  changed_when: false
+
+# lookup('file') は末尾改行を除去するため hash('sha256') はノード側 sha256sum と
+# 常に不一致になり毎回ローリング再起動する。sha256sum の生値をそのまま比較する。
+- name: registries.yaml のローカルチェックサムを設定
   ansible.builtin.set_fact:
-    registries_local_sha: "{{ lookup('file', '/tmp/k3d-registries-' ~ cluster_name ~ '.yaml') | hash('sha256') }}"
+    registries_local_sha: "{{ registries_local_sha_cmd.stdout.split() | first }}"
 
 - name: 各ノードの registries.yaml チェックサムを取得
   ansible.builtin.shell: |
@@ -335,7 +342,8 @@
     - pre_import_images
     - images
 
-# システムコンポーネント配置 (Server ノード)
+# システムコンポーネントのスケール・配置制御
+# (CoreDNS / metrics-server = Server ノード、local-path-provisioner = 全ノード)
 - name: CoreDNS をサーバーノード数に合わせてスケール
   ansible.builtin.command: "kubectl scale deployment coredns -n {{ kube_system_namespace }} --replicas={{ servers | default(1) }}"
   register: scale_coredns

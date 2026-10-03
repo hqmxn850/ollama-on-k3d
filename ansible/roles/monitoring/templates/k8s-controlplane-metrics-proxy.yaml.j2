@@ -11,11 +11,13 @@ data:
     http {
       server {
         listen {{ k8s_metrics_proxy_port | default(10240) }};
+{% if k3s_etcd_metrics_enabled | default(false) | bool %}
         location = /metrics/etcd {
           proxy_pass http://127.0.0.1:2381/metrics;
           proxy_connect_timeout 2s;
           proxy_read_timeout 10s;
         }
+{% endif %}
         location = /metrics/proxy {
           proxy_pass http://127.0.0.1:10249/metrics;
           proxy_connect_timeout 2s;

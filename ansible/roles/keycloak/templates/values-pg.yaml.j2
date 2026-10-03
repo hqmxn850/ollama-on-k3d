@@ -71,7 +71,8 @@ primary:
 readReplicas:
   replicaCount: 0
 
-# postgresql.extendedConfiguration を conf.d へ配置するために必須
+# 永続ボリュームの所有者/グループを修正する init コンテナ
+# (local-path 等で fsGroup が効かないストレージで起動失敗するのを防ぐ)
 volumePermissions:
   enabled: true
   image:

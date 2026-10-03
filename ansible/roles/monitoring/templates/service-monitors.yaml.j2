@@ -266,6 +266,7 @@ spec:
     tlsConfig:
       insecureSkipVerify: true
     bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+{% if k3s_etcd_metrics_enabled | default(false) | bool %}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -285,6 +286,7 @@ spec:
   - port: proxy-metrics
     path: /metrics/etcd
     interval: 30s
+{% endif %}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor

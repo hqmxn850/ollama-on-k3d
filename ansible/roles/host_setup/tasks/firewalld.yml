@@ -4,7 +4,7 @@
 # 該当しない FORWARD トラフィックを reject with icmpx admin-prohibited で拒否する。
 # Podman subnet (podman_network_cidr) は podman が runtime のみ登録するため、
 # reload で消滅しノード間通信が全断する。K8s Pod/Service CIDR も同様に
-# permanent 登録しない限り cross-node pod-to-pod (Ceph mon quorum 等) が遮断される。
+# permanent 登録しない限り cross-node pod-to-pod 通信が遮断される。
 
 - name: firewall-cmd の存在確認
   ansible.builtin.command: which firewall-cmd

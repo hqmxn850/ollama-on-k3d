@@ -5,8 +5,7 @@
 # 管理・制御プレーンの保護:
 # - CoreDNS への DNS クエリ (53/UDP,TCP) を全名前空間から許可
 # - Traefik Ingress の外部受付およびクラスタ内ルーティングを許可
-# - Metrics-Server へのメトリクス収集アクセスを許可
-# - 内部 etcd / Kubelet ポートを一般ワークロードから保護
+# - Metrics-Server へのメトリクス収集アクセスを許可 (443 / 4443 / 10250)
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

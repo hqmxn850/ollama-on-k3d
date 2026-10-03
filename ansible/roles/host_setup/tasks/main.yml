@@ -137,24 +137,6 @@
   become: true
   failed_when: false
 
-- name: Ceph / RBD カーネルモジュール自動ロード設定を配置
-  ansible.builtin.copy:
-    content: |
-      # Rook-Ceph CSI / RBD 用カーネルモジュール
-      rbd
-      ceph
-      libceph
-    dest: /etc/modules-load.d/ceph.conf
-    mode: '0644'
-- name: Ceph / RBD カーネルモジュールをロード
-  ansible.builtin.command: "modprobe {{ item }}"
-  loop:
-    - libceph
-    - rbd
-    - ceph
-  changed_when: false
-  become: true
-
 - name: ネットワーク チューニング用 (BBR / IPVS) カーネルモジュール自動ロード設定を配置
   ansible.builtin.copy:
     content: |

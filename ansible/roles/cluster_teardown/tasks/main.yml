@@ -5,15 +5,8 @@
   changed_when: false
   when: lookup('env', '_SAVED_IMAGES_DONE') != '1'
 
-- name: クラスタ削除前に残存 FUSE 接続および RBD デバイスを中止・解放 (コンテナ D state 停止ハング防止)
+- name: クラスタ削除前に残存 FUSE 接続を中止 (コンテナ D state 停止ハング防止)
   ansible.builtin.shell: |
-    # 残存 RBD デバイスを強制 unmap
-    for d in /sys/bus/rbd/devices/*; do
-      if [ -d "$d" ]; then
-        dev_id=$(basename "$d")
-        echo "$dev_id force" > /sys/bus/rbd/remove_single_major 2>/dev/null || echo "$dev_id" > /sys/bus/rbd/remove 2>/dev/null || true
-      fi
-    done
     # 残存 FUSE 接続を中止
     for conn in /sys/fs/fuse/connections/*; do
       if [ -f "$conn/abort" ]; then
@@ -53,29 +46,19 @@
     [ -n "$CONTAINERS" ] && podman rm -f $CONTAINERS || true
   become: true
 
-- name: 残存する Ceph OSD loop デバイスおよび RBD デバイスを解放
+- name: 残存する固定 loop デバイスおよび未使用 loop ノードを解放
   ansible.builtin.shell: |
     sync
-    # 残存 RBD デバイスを強制 unmap
-    for d in /sys/bus/rbd/devices/*; do
-      if [ -d "$d" ]; then
-        dev_id=$(basename "$d")
-        echo "$dev_id force" > /sys/bus/rbd/remove_single_major 2>/dev/null || echo "$dev_id" > /sys/bus/rbd/remove 2>/dev/null || true
-      fi
-    done
-    # 固定 loop デバイス (ノード数連動) の解放
+    # 固定 loop デバイス (Worker ノード数連動) の解放
     for l in $(seq 50 $(( 50 + {{ agents | default(1) }} - 1 ))); do
       if losetup /dev/loop$l 2>/dev/null; then
         losetup -d /dev/loop$l 2>/dev/null || true
       fi
     done
-    # ceph-disk / disk.img / kubernetes.io に関連付けられた loop デバイスを動的解放
-    for dev in $(losetup -a 2>/dev/null | grep -E "ceph-disk|disk\.img|kubernetes\.io" | cut -d: -f1); do
+    # disk.img / kubernetes.io に関連付けられた loop デバイスを動的解放
+    for dev in $(losetup -a 2>/dev/null | grep -E "disk\.img|kubernetes\.io" | cut -d: -f1); do
       [ -n "$dev" ] && losetup -d "$dev" 2>/dev/null || true
     done
-    if losetup -a 2>/dev/null | grep -qE "ceph-disk|disk\.img"; then
-      losetup -D 2>/dev/null || true
-    fi
     # 未使用の余分な /dev/loop デバイスノードを削除
     for dev in /dev/loop[0-9]*; do
       if [ -e "$dev" ] && ! losetup -a 2>/dev/null | grep -q "^${dev}:"; then

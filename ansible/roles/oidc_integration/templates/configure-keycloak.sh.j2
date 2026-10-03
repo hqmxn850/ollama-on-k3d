@@ -145,7 +145,7 @@ if [ -z "$GRAFANA_CID" ]; then
   exit 1
 fi
 
-# 2.4 pgAdmin 4 クライアント
+# 2.3 pgAdmin 4 クライアント
 PGADMIN_CID=$(get_client_id "pgadmin")
 if [ -z "$PGADMIN_CID" ]; then
   echo "Creating client 'pgadmin'..."
@@ -169,7 +169,7 @@ if [ -z "$PGADMIN_CID" ]; then
   exit 1
 fi
 
-# 2.6 Traefik Dashboard SSO クライアント (oauth2-proxy forwardAuth)
+# 2.4 Traefik Dashboard SSO クライアント (oauth2-proxy forwardAuth)
 TRAEFIK_CID=$(get_client_id "traefik")
 if [ -z "$TRAEFIK_CID" ]; then
   echo "Creating client 'traefik' (Dashboard SSO via oauth2-proxy)..."
@@ -207,7 +207,7 @@ if [ -z "$TRAEFIK_CID" ]; then
   exit 1
 fi
 
-# 2.7 Open WebUI クライアント
+# 2.5 Open WebUI クライアント
 OPEN_WEBUI_CID=$(get_client_id "$OPEN_WEBUI_CLIENT_ID")
 if [ -z "$OPEN_WEBUI_CID" ]; then
   echo "Creating client '$OPEN_WEBUI_CLIENT_ID'..."

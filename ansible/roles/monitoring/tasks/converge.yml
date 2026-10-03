@@ -57,7 +57,7 @@
   register: apply_sm
   changed_when: "'configured' in apply_sm.stdout or 'created' in apply_sm.stdout"
 
-- name: 標準 PrometheusRule (PostgreSQL, Keycloak, Ceph, Registry, Traefik, cert-manager, Core) を適用
+- name: 標準 PrometheusRule (PostgreSQL, Keycloak, Traefik, cert-manager, クラスタ基盤) を適用
   ansible.builtin.command: "kubectl apply -f -"
   args:
     stdin: "{{ lookup('template', 'prometheus-rules-standard.yaml.j2') }}"

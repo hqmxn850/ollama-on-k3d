@@ -1,8 +1,7 @@
 mode: production
 hostname:
   # スキーム付き URL を指定することで discovery ドキュメントの issuer が
-  # https://<hostname>/realms/master になり、Ceph 側の
-  # MINIO_IDENTITY_OPENID_ISSUER と一致する (不一致だと OIDC ボタンが消える)
+  # https://<hostname>/realms/master になる
   hostname: https://{{ keycloak_hostname }}
   # backchannel を動的解決にする。フロントチャネル (issuer / authorization_endpoint)
   # は外部 HTTPS のまま、token / jwks / userinfo はリクエスト元の

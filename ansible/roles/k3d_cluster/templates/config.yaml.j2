@@ -74,9 +74,11 @@ options:
       - arg: "--kube-proxy-arg=proxy-mode={{ kube_proxy_mode | default('ipvs') }}"
         nodeFilters:
           - "all"
+{% if k3s_etcd_metrics_enabled | default(false) | bool %}
       - arg: "--etcd-expose-metrics=true"
         nodeFilters:
           - server:*
+{% endif %}
       - arg: "--kube-proxy-arg=metrics-bind-address=0.0.0.0:10249"
         nodeFilters:
           - "all"
