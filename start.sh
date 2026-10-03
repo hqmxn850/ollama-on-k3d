@@ -753,6 +753,8 @@ if [[ "$CHECK_MODE" == false && "${OLLAMA_ENABLED:-true}" == true \
       fi
     else
       log "標準 LLM モデルは既に登録されています: ${REGISTERED_MODEL}"
+      # 登録済みモデルでも tools サポートが無い場合は Modelfile を適用して自動再作成
+      "${SCRIPT_DIR}/ollama-pull.sh" --enable-tools "${REGISTERED_MODEL}" || true
     fi
 
     if [[ -n "${REGISTERED_MODEL}" && "${OPEN_WEBUI_ENABLED:-true}" == true ]]; then

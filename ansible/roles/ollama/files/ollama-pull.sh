@@ -78,10 +78,13 @@ usage() {
   ./ollama-pull.sh [オプション] <model_name> [model_name2 ...]
   ./ollama-pull.sh rm <model_name> [model_name2 ...]
   ./ollama-pull.sh --delete <model_name> [model_name2 ...]
+  ./ollama-pull.sh --enable-tools <model_name> [model_name2 ...]
 
 説明:
   Kubernetes 上で稼働中の Ollama サービスに指定された LLM モデルをダウンロード (pull)
   または不要になったモデルを削除 (rm / delete) します。
+  また、tools (関数呼び出し) に対応していないモデルに対して、tools サポート用 Modelfile を適用して
+  再作成・有効化 (--enable-tools) します。
   モデルデータは Ollama 用の永続ボリューム (PersistentVolumeClaim) に保存・管理されます。
 
 オプション:
@@ -89,6 +92,7 @@ usage() {
   pull, download           ダウンロードのサブコマンド構文 (省略可)
   -d, --delete, --rm       指定されたモデルをクラスタから削除
   rm, delete               指定されたモデルを削除するサブコマンド構文
+  --enable-tools           指定されたモデルに tools (関数呼び出し) サポートを追加・再作成
   -l, --list               現在クラスタ内にダウンロード済みのモデル一覧を表示
   -n, --namespace <ns>     Ollama の名前空間 (デフォルト: ollama)
   --exec                   kubectl exec 経由で実行 (デフォルト: 対話的進捗バー表示)
@@ -103,10 +107,13 @@ usage() {
   deepseek-r1:1.5b         推論・思考特化モデル (約 1.1 GB)
 
 使用例:
-  # モデルのダウンロード
+  # モデルのダウンロード (tools 非対応の場合は自動で追加)
   ./ollama-pull.sh qwen2.5:0.5b
   ./ollama-pull.sh -m llama3.2:1b
   ./ollama-pull.sh --list
+
+  # モデルへの tools (関数呼び出し) サポート追加
+  ./ollama-pull.sh --enable-tools FieldMouse-AI/qwen3.8:27B
 
   # モデルの削除
   ./ollama-pull.sh rm qwen2.5:0.5b
@@ -128,6 +135,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -d|--delete|--rm|rm|delete)
       ACTION="delete"
+      shift
+      ;;
+    --enable-tools)
+      ACTION="enable_tools"
       shift
       ;;
     pull|download)
@@ -199,6 +210,8 @@ fi
 if [[ ${#MODELS[@]} -eq 0 ]]; then
   if [[ "${ACTION}" == "delete" ]]; then
     err "削除するモデル名が指定されていません。"
+  elif [[ "${ACTION}" == "enable_tools" ]]; then
+    err "tools サポートを追加するモデル名が指定されていません。"
   else
     err "ダウンロードするモデル名が指定されていません。"
   fi
@@ -208,6 +221,130 @@ fi
 
 # Ollama Pod の確認
 check_ollama_pod
+
+# ==============================================================================
+# モデルの tools (関数呼び出し / Function Calling) サポート確認 & 自動追加
+# ==============================================================================
+check_model_supports_tools() {
+  local model="$1"
+
+  # 1. API 経由で確認 (利用可能な場合)
+  if command -v curl &>/dev/null && command -v jq &>/dev/null; then
+    local caps
+    caps=$(curl -k -s --max-time 5 "https://${OLLAMA_HOSTNAME}/api/show" \
+      -d "{\"name\": \"${model}\"}" 2>/dev/null | jq -r '.capabilities[]?' 2>/dev/null || true)
+    if [[ -n "${caps}" ]]; then
+      if echo "${caps}" | grep -qx "tools"; then
+        return 0
+      else
+        return 1
+      fi
+    fi
+  fi
+
+  # 2. kubectl exec 経由で確認 (フォールバック)
+  local show_output
+  show_output=$(kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama show "${model}" 2>/dev/null || true)
+  if echo "${show_output}" | awk '/^[[:space:]]{2}Capabilities/{flag=1; next} /^[[:space:]]{2}[A-Za-z]/{flag=0} flag {print $1}' | grep -qx "tools"; then
+    return 0
+  fi
+
+  return 1
+}
+
+# tools のサポートが無い場合に Modelfile を適用して再作成する関数
+ensure_tools_support() {
+  local model="$1"
+
+  log "モデル '${model}' の tools (関数呼び出し) 対応状況を確認中..."
+  if check_model_supports_tools "${model}"; then
+    succ "モデル '${model}' は既に tools (関数呼び出し) に対応しています。"
+    return 0
+  fi
+
+  warn "モデル '${model}' は tools (関数呼び出し) に対応していません。"
+  log "tools サポート用 Modelfile を適用し、モデル '${model}' を再作成します..."
+
+  local tmp_modelfile="/tmp/Modelfile.tools.$$"
+  local local_tmp
+  local_tmp=$(mktemp)
+
+  cat << EOF > "${local_tmp}"
+FROM ${model}
+
+EOF
+  cat << 'EOF' >> "${local_tmp}"
+TEMPLATE """{{- if .Messages }}
+{{- if or .System .Tools }}<|im_start|>system
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {{ .Function }}}
+{{- end }}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>
+{{- end }}<|im_end|>
+{{ end }}
+{{- range $i, $_ := .Messages }}
+{{- $last := eq (len (slice $.Messages $i)) 1 -}}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{ if .Content }}{{ .Content }}
+{{- else if .ToolCalls }}<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}{{ if not $last }}<|im_end|>
+{{ end }}
+{{- else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- if and (ne .Role "assistant") $last }}<|im_start|>assistant
+{{ end }}
+{{- end }}
+{{- else }}
+{{- if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+{{ end }}<|im_start|>assistant
+{{ end }}{{ .Response }}{{ if .Response }}<|im_end|>{{ end }}"""
+EOF
+
+  # Pod 内へ Modelfile を転送
+  if kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- sh -c "cat > ${tmp_modelfile}" < "${local_tmp}"; then
+    rm -f "${local_tmp}"
+    log "Pod 内で 'ollama create ${model} -f Modelfile' を実行中..."
+    if kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama create "${model}" -f "${tmp_modelfile}"; then
+      kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- rm -f "${tmp_modelfile}" 2>/dev/null || true
+      succ "モデル '${model}' に tools サポートを正常に追加・適用しました。"
+      return 0
+    else
+      kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- rm -f "${tmp_modelfile}" 2>/dev/null || true
+      err "モデル '${model}' への tools サポート追加 (ollama create) に失敗しました。"
+      return 1
+    fi
+  else
+    rm -f "${local_tmp}"
+    err "Pod 内への Modelfile 配置に失敗しました。"
+    return 1
+  fi
+}
 
 # ==============================================================================
 # モデル削除処理 (delete / rm)
@@ -270,6 +407,144 @@ if [[ "${ACTION}" == "delete" ]]; then
 fi
 
 # ==============================================================================
+# tools サポート追加アクション実行 (--enable-tools)
+# ==============================================================================
+if [[ "${ACTION}" == "enable_tools" ]]; then
+  total_models=${#MODELS[@]}
+  current=0
+  failed_models=()
+
+  log "指定されたモデルへの tools サポート追加を開始します (合計: ${total_models} 件)..."
+
+  for model in "${MODELS[@]}"; do
+    current=$((current + 1))
+    echo ""
+    log "[${current}/${total_models}] モデル '${model}' の tools サポート適用中..."
+    if ! ensure_tools_support "${model}"; then
+      failed_models+=("${model}")
+    fi
+  done
+
+  if [[ ${#failed_models[@]} -gt 0 ]]; then
+    echo ""
+    err "以下のモデルへの tools 追加に失敗しました: ${failed_models[*]}"
+    exit 1
+  fi
+
+  echo ""
+  succ "全指定モデルの tools サポート適用処理が完了しました。"
+  exit 0
+fi
+
+# ホスト上のローカルキャッシュからモデルをインポートする関数
+try_import_from_host_cache() {
+  local model="$1"
+  local sudo_cmd=""
+  if [[ $EUID -ne 0 ]] && command -v sudo &>/dev/null; then
+    sudo_cmd="sudo"
+  fi
+
+  local name_tag="$model"
+  local name tag
+  if [[ "$name_tag" == *":"* ]]; then
+    tag="${name_tag##*:}"
+    name="${name_tag%:*}"
+  else
+    tag="latest"
+    name="$name_tag"
+  fi
+
+  local registry="registry.ollama.ai"
+  if [[ "$name" == *"/"* ]]; then
+    local first_part="${name%%/*}"
+    if [[ "$first_part" == *"."* || "$first_part" == *":"* ]]; then
+      registry="$first_part"
+      name="${name#*/}"
+    fi
+  else
+    name="library/${name}"
+  fi
+
+  local rel_manifest="manifests/${registry}/${name}/${tag}"
+
+  local cache_dirs=(
+    "/usr/share/ollama/.ollama/models"
+    "${HOME}/.ollama/models"
+    "/var/lib/ollama/.ollama/models"
+  )
+
+  local found_cache_dir=""
+  for cdir in "${cache_dirs[@]}"; do
+    if ${sudo_cmd} test -f "${cdir}/${rel_manifest}" 2>/dev/null; then
+      found_cache_dir="$cdir"
+      break
+    fi
+  done
+
+  if [[ -z "${found_cache_dir}" ]]; then
+    return 1
+  fi
+
+  log "ホスト上にモデル '${model}' のキャッシュを検出しました: ${found_cache_dir}"
+  log "キャッシュファイルの整合性を検証中..."
+
+  local file_list
+  if ! file_list=$(${sudo_cmd} python3 - "${found_cache_dir}" "${rel_manifest}" <<'PYEOF' 2>/dev/null
+import json, sys, os
+
+cache_dir = sys.argv[1]
+rel_manifest = sys.argv[2]
+manifest_path = os.path.join(cache_dir, rel_manifest)
+
+try:
+    with open(manifest_path, "r") as f:
+        data = json.load(f)
+except Exception:
+    sys.exit(1)
+
+files = [rel_manifest]
+
+def to_blob(d):
+    return "blobs/" + d.replace(":", "-")
+
+config_digest = data.get("config", {}).get("digest")
+if config_digest:
+    files.append(to_blob(config_digest))
+
+for layer in data.get("layers", []):
+    d = layer.get("digest")
+    if d:
+        files.append(to_blob(d))
+
+for f in files:
+    full = os.path.join(cache_dir, f)
+    if not os.path.isfile(full):
+        sys.exit(1)
+
+for f in files:
+    print(f)
+PYEOF
+  ); then
+    warn "キャッシュファイルの検証に失敗しました。通常ダウンロードに移行します。"
+    return 1
+  fi
+
+  log "ホストのキャッシュから Ollama Pod へのモデル転送を開始します (高速インポート)..."
+  if printf '%s\n' "${file_list}" | ${sudo_cmd} tar -C "${found_cache_dir}" -cf - -T - \
+    | kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- tar -xf - -C /root/.ollama/models 2>/dev/null; then
+    
+    if kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama list 2>/dev/null \
+      | awk '{print $1}' | grep -qi "^${model}$"; then
+      succ "ホストのキャッシュからモデル '${model}' を正常にインポートしました。"
+      return 0
+    fi
+  fi
+
+  warn "キャッシュのインポート後にモデルが認識されなかったため、通常ダウンロードに移行します。"
+  return 1
+}
+
+# ==============================================================================
 # モデルダウンロード処理 (pull)
 # ==============================================================================
 TOTAL_MODELS=${#MODELS[@]}
@@ -281,25 +556,24 @@ log "指定されたモデルのダウンロード (pull) を開始します (�
 for model in "${MODELS[@]}"; do
   CURRENT=$((CURRENT + 1))
   echo ""
-  log "[${CURRENT}/${TOTAL_MODELS}] モデル '${model}' のダウンロードを開始します..."
+  log "[${CURRENT}/${TOTAL_MODELS}] モデル '${model}' の取得を開始します..."
 
-  if [[ "${MODE}" == "exec" ]]; then
+  pull_success=false
+
+  # ホスト上のローカルキャッシュからの高速インポートを試行
+  if try_import_from_host_cache "${model}"; then
+    pull_success=true
+  elif [[ "${MODE}" == "exec" ]]; then
     # kubectl exec 経由 (標準の対話的進捗バー)
     if [ -t 1 ]; then
       # 端末で実行されている場合は対話的 TTY を付与
       if kubectl exec -it -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama pull "${model}"; then
-        succ "モデル '${model}' のダウンロードが正常に完了しました。"
-      else
-        err "モデル '${model}' のダウンロードに失敗しました。"
-        FAILED_MODELS+=("${model}")
+        pull_success=true
       fi
     else
       # 非対話環境
       if kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama pull "${model}"; then
-        succ "モデル '${model}' のダウンロードが正常に完了しました。"
-      else
-        err "モデル '${model}' のダウンロードに失敗しました。"
-        FAILED_MODELS+=("${model}")
+        pull_success=true
       fi
     fi
   else
@@ -321,11 +595,17 @@ for model in "${MODELS[@]}"; do
           fi
         fi
       done; echo ""; then
-      succ "モデル '${model}' のダウンロードが正常に完了しました。"
-    else
-      err "モデル '${model}' の API ダウンロードに失敗しました。"
-      FAILED_MODELS+=("${model}")
+      pull_success=true
     fi
+  fi
+
+  if [[ "${pull_success}" == true ]]; then
+    succ "モデル '${model}' の取得が正常に完了しました。"
+    # tools (関数呼び出し) サポートの確認 & 未対応時の自動 Modelfile 適用
+    ensure_tools_support "${model}" || true
+  else
+    err "モデル '${model}' の取得に失敗しました。"
+    FAILED_MODELS+=("${model}")
   fi
 done
 

@@ -245,6 +245,13 @@ if [[ -f "${PROJECT_ROOT}/ollama-pull.sh" ]]; then
   else
     fail "ollama-pull.sh: rm モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_OP_NORM)"
   fi
+
+  OUTPUT_OP_NOTOOLS=$("${PROJECT_ROOT}/ollama-pull.sh" --enable-tools 2>&1 || true)
+  if echo "$OUTPUT_OP_NOTOOLS" | grep -qi "tools サポートを追加するモデル名が指定されていません"; then
+    pass "ollama-pull.sh: モデル未指定時のエラーハンドリング (--enable-tools)"
+  else
+    fail "ollama-pull.sh: --enable-tools モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_OP_NOTOOLS)"
+  fi
 fi
 
 info "5. イメージ抽出・カテゴリ分類・保存テスト (save-images.sh)"
