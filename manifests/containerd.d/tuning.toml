@@ -1,0 +1,7 @@
+# containerd パフォーマンスチューニング設定 (Ansible で自動生成)
+# 並行ダウンロード数を引き上げ、イメージ pull 時間を短縮
+[plugins."io.containerd.cri.v1.images"]
+  max_concurrent_downloads = 10
+
+[plugins."io.containerd.transfer.v1.local"]
+  max_concurrent_downloads = 10

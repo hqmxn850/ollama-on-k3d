@@ -1,0 +1,57 @@
+# firewalld trusted zone 登録 (cross-node pod-to-pod 転送許可)
+#
+# ホスト firewalld の filter_FORWARD_POLICIES は trusted zone の source に
+# 該当しない FORWARD トラフィックを reject with icmpx admin-prohibited で拒否する。
+# Podman subnet (podman_network_cidr) は podman が runtime のみ登録するため、
+# reload で消滅しノード間通信が全断する。K8s Pod/Service CIDR も同様に
+# permanent 登録しない限り cross-node pod-to-pod (Ceph mon quorum 等) が遮断される。
+
+- name: firewall-cmd の存在確認
+  ansible.builtin.command: which firewall-cmd
+  register: firewall_cmd_bin
+  failed_when: false
+  changed_when: false
+  become: true
+
+- name: firewalld サービスの状態を確認
+  ansible.builtin.command: systemctl is-active firewalld
+  register: firewalld_state
+  failed_when: false
+  changed_when: false
+  become: true
+  when: firewall_cmd_bin.rc == 0
+
+- name: trusted zone に転送許可 CIDR を permanent 登録 (firewalld 有効時のみ)
+  ansible.builtin.command: >-
+    firewall-cmd --permanent --zone=trusted --add-source={{ item }}
+  loop:
+    - "{{ podman_network_cidr }}"
+    - "{{ k8s_cluster_cidr }}"
+    - "{{ k8s_service_cidr }}"
+  register: firewalld_trusted_sources
+  changed_when: "'ALREADY_ENABLED' not in (firewalld_trusted_sources.stderr | default(''))"
+  failed_when: false
+  become: true
+  when:
+    - firewall_cmd_bin.rc == 0
+    - firewalld_state.rc == 0
+
+- name: firewalld 設定を reload
+  ansible.builtin.command: firewall-cmd --reload
+  when:
+    - firewall_cmd_bin.rc == 0
+    - firewalld_state.rc == 0
+    - firewalld_trusted_sources is not skipped
+    - firewalld_trusted_sources.results | default([]) | selectattr('changed') | list | length > 0
+  changed_when: true
+  become: true
+
+- name: trusted zone 登録結果を確認
+  ansible.builtin.command: firewall-cmd --zone=trusted --list-sources
+  register: firewalld_trusted_list
+  changed_when: false
+  failed_when: false
+  become: true
+  when:
+    - firewall_cmd_bin.rc == 0
+    - firewalld_state.rc == 0

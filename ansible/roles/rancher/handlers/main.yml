@@ -1,0 +1,15 @@
+# Rancher ロール ハンドラ定義
+---
+- name: Reload NetworkManager
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: reloaded
+  become: true
+  failed_when: false
+
+- name: Restart NetworkManager
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: restarted
+  become: true
+  failed_when: false

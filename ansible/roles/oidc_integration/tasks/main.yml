@@ -1,0 +1,329 @@
+---
+- name: Keycloak サービスのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/keycloak-keycloak -n {{ keycloak_namespace }} --timeout={{ default_rollout_timeout }}"
+  changed_when: false
+
+- name: 既存の Keycloak 設定用一時 Pod があれば削除
+  ansible.builtin.command: "kubectl delete pod kc-configure -n {{ default_namespace | default('default') }} --ignore-not-found"
+  changed_when: false
+  failed_when: false
+
+- name: Keycloak OIDC 一括設定および検証を実行
+  ansible.builtin.command: >
+    kubectl run kc-configure --rm -i --image={{ oidc_curl_image | default('curlimages/curl') }} --restart=Never -n {{ default_namespace | default('default') }} --command -- /bin/sh
+  args:
+    stdin: "{{ lookup('template', 'configure-keycloak.sh.j2') }}"
+  register: kc_configure_result
+  changed_when: "'SUCCESS' in kc_configure_result.stdout"
+
+- name: Keycloak OIDC 設定ログを出力
+  ansible.builtin.debug:
+    var: kc_configure_result.stdout_lines
+
+# ==========================================================
+# Traefik Dashboard Keycloak SSO (oauth2-proxy forwardAuth)
+# ==========================================================
+- name: oauth2-proxy をデプロイ (Traefik Dashboard Keycloak SSO)
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'oauth2-proxy.yaml.j2') }}"
+  register: apply_oauth2_proxy
+  changed_when: "'created' in apply_oauth2_proxy.stdout or 'configured' in apply_oauth2_proxy.stdout"
+  when: not (disable_traefik | default(false))
+
+- name: oauth2-proxy のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/oauth2-proxy -n {{ kube_system_namespace }} --timeout={{ default_rollout_timeout }}"
+  register: oauth2_proxy_rollout
+  until: oauth2_proxy_rollout.rc == 0
+  retries: "{{ quick_retry_count }}"
+  delay: "{{ quick_retry_delay }}"
+  changed_when: false
+  when: not (disable_traefik | default(false))
+
+- name: Traefik Dashboard を SSO (Keycloak OIDC / oauth2-proxy) に切替
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'traefik-dashboard-sso.yaml.j2') }}"
+  register: apply_traefik_sso
+  changed_when: "'created' in apply_traefik_sso.stdout or 'configured' in apply_traefik_sso.stdout"
+  when: not (disable_traefik | default(false))
+
+- name: 旧 BasicAuth リソースを削除 (SSO 切替後の残骸除去)
+  ansible.builtin.shell: |
+    kubectl delete secret traefik-dashboard-auth-secret -n {{ kube_system_namespace }} --ignore-not-found
+    kubectl delete middleware traefik-dashboard-auth -n {{ kube_system_namespace }} --ignore-not-found
+  changed_when: false
+  failed_when: false
+  when: not (disable_traefik | default(false))
+
+- name: Rancher server-url を設定
+  ansible.builtin.command: >
+    kubectl patch settings.management.cattle.io server-url --type merge -p '{"value":"https://{{ rancher_hostname }}"}'
+  failed_when: false
+  changed_when: false
+
+
+- name: Rancher に Keycloak OIDC AuthConfig を適用 (SSO 有効化)
+  ansible.builtin.command: >
+    kubectl patch authconfigs.management.cattle.io keycloakoidc --type merge -p '{
+      "enabled": true,
+      "clientId": "rancher",
+      "clientSecret": "{{ rancher_client_secret }}",
+      "issuer": "https://{{ keycloak_hostname }}/realms/master",
+      "authEndpoint": "https://{{ keycloak_hostname }}/realms/master/protocol/openid-connect/auth",
+      "tokenEndpoint": "{{ keycloak_internal_url }}/realms/master/protocol/openid-connect/token",
+      "userInfoEndpoint": "{{ keycloak_internal_url }}/realms/master/protocol/openid-connect/userinfo",
+      "certsUrl": "{{ keycloak_internal_url }}/realms/master/protocol/openid-connect/certs",
+      "rancherUrl": "https://{{ rancher_hostname }}/verify-auth",
+      "scope": "openid profile email",
+      "groupSearchEnabled": true
+    }'
+  register: patch_keycloak_authconfig
+  until: patch_keycloak_authconfig.rc == 0
+  retries: "{{ steady_retry_count }}"
+  delay: "{{ steady_retry_delay }}"
+  failed_when: false
+  changed_when: "'patched' in patch_keycloak_authconfig.stdout"
+
+- name: 予備の汎用 OIDC AuthConfig を無効化 (keycloakoidc との競合防止)
+  ansible.builtin.command: >
+    kubectl patch authconfigs.management.cattle.io oidc --type merge -p '{"enabled": false}'
+  failed_when: false
+  changed_when: false
+
+- name: Rancher 管理者グループ ({{ admin_group_name }}) の GlobalRoleBinding を作成
+  ansible.builtin.command: >
+    kubectl apply -f -
+  args:
+    stdin: "{{ lookup('template', 'globalrolebinding.yaml.j2') }}"
+  failed_when: false
+  changed_when: false
+
+- name: Rancher 新規ユーザーへの管理者権限 (admin GlobalRole) 自動付与を設定
+  ansible.builtin.command: >
+    kubectl patch globalrole admin --type merge -p '{"newUserDefault":true}'
+  failed_when: false
+  changed_when: false
+
+- name: 既存の Keycloak SSO ユーザーに管理者権限 (admin GlobalRoleBinding) を付与
+  ansible.builtin.shell: |
+    kubectl get users -o json | jq -r '.items[] | select(.principalIds[]? | startswith("keycloakoidc_user://")) | .metadata.name' | while read -r uid; do
+      if [[ -n "$uid" ]]; then
+        cat <<EOF | kubectl apply -f -
+    apiVersion: management.cattle.io/v3
+    kind: GlobalRoleBinding
+    metadata:
+      name: sso-admin-${uid}
+    globalRoleName: admin
+    userName: ${uid}
+    EOF
+      fi
+    done
+  failed_when: false
+  changed_when: false
+
+- name: Rancher 初期セットアップの自動完了 (Bootstrap Pass 不要化 & admin パスワード設定)
+  ansible.builtin.shell: |
+    USER_ID=$(kubectl get user -l authz.management.cattle.io/bootstrapping=admin-user -o jsonpath='{.items[0].metadata.name}')
+    [[ -z "$USER_ID" ]] && exit 0
+
+    # パスワード最小長を 4 に緩和
+    kubectl patch setting password-min-length --type merge -p '{"value":"4"}' || true
+
+    # reset-password コマンドで一時パスワードを生成
+    TEMP_PASS=$(kubectl exec -n {{ rancher_namespace }} deploy/rancher -c rancher -- reset-password 2>/dev/null | tail -n 1 | tr -d '\r\n')
+    [[ -z "$TEMP_PASS" ]] && exit 0
+
+    # API ログインしてトークンを取得
+    LOGIN_RESP=$(curl -k -s -X POST https://{{ rancher_hostname }}/v3-public/localProviders/local?action=login \
+      -H 'Content-Type: application/json' \
+      -d "{\"username\":\"admin\",\"password\":\"$TEMP_PASS\"}")
+    TOKEN=$(echo "$LOGIN_RESP" | jq -r '.token // empty')
+    [[ -z "$TOKEN" ]] && exit 0
+
+    # admin パスワードを設定
+    curl -k -s -X POST "https://{{ rancher_hostname }}/v3/users/${USER_ID}?action=setpassword" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d "{\"newPassword\":\"{{ rancher_admin_password }}\"}" || true
+
+    # first-login を false に設定 (初回セットアップ画面をバイパス)
+    curl -k -s -X PUT "https://{{ rancher_hostname }}/v3/settings/first-login" \
+      -H "Authorization: Bearer $TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{"name":"first-login","value":"false"}' || true
+
+    # mustChangePassword を false に設定
+    kubectl patch user "$USER_ID" --type merge -p '{"mustChangePassword":false}' || true
+  changed_when: false
+  failed_when: false
+
+- name: Ceph S3 (RGW) 認証情報を Secret から取得
+  ansible.builtin.shell: |
+    ACCESS_KEY=$(kubectl get secret rook-ceph-object-user-ceph-objectstore-ceph-admin-user -n {{ rook_ceph_namespace | default('rook-ceph') }} -o jsonpath='{.data.AccessKey}' 2>/dev/null | base64 -d || true)
+    SECRET_KEY=$(kubectl get secret rook-ceph-object-user-ceph-objectstore-ceph-admin-user -n {{ rook_ceph_namespace | default('rook-ceph') }} -o jsonpath='{.data.SecretKey}' 2>/dev/null | base64 -d || true)
+    echo "{\"access_key\":\"$ACCESS_KEY\",\"secret_key\":\"$SECRET_KEY\"}"
+  register: ceph_s3_creds_raw
+  changed_when: false
+
+- name: Ceph S3 認証情報を fact として設定
+  ansible.builtin.set_fact:
+    ceph_access_key: "{{ (ceph_s3_creds_raw.stdout | from_json).access_key | default(ceph_access_key | default(''), true) }}"
+    ceph_secret_key: "{{ (ceph_s3_creds_raw.stdout | from_json).secret_key | default(ceph_secret_key | default(''), true) }}"
+
+- name: Ceph Dashboard 認証情報を Secret から取得
+  ansible.builtin.shell: |
+    kubectl get secret rook-ceph-dashboard-password -n {{ rook_ceph_namespace | default('rook-ceph') }} -o jsonpath='{.data.password}' 2>/dev/null | base64 -d || true
+  register: ceph_dashboard_password_raw
+  changed_when: false
+
+- name: Ceph Dashboard 認証情報を fact として設定
+  ansible.builtin.set_fact:
+    ceph_dashboard_password: "{{ ceph_dashboard_password_raw.stdout | default('N/A', true) }}"
+
+- name: Ceph Dashboard SAML 2.0 SSO を設定・有効化
+  ansible.builtin.shell: |
+    MGR_PODS=$(kubectl get pods -n {{ rook_ceph_namespace | default('rook-ceph') }} -l app=rook-ceph-mgr --field-selector status.phase=Running -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+    if [ -n "$MGR_PODS" ]; then
+      ADMIN_KEY=$(kubectl get secret rook-ceph-admin-keyring -n {{ rook_ceph_namespace | default('rook-ceph') }} -o jsonpath='{.data.keyring}' | base64 -d | grep 'key =' | awk '{print $3}')
+      FIRST_POD=$(echo "$MGR_PODS" | awk '{print $1}')
+      [ -z "$FIRST_POD" ] && exit 0
+
+      # 0) 既存の破損 ssodb_v1 をリカバリ (空文字列等による dashboard クラッシュの修復)
+      CUR_VAL=$(kubectl exec -n {{ rook_ceph_namespace | default('rook-ceph') }} "$FIRST_POD" -c mgr -- ceph -n client.admin --key="$ADMIN_KEY" config-key get mgr/dashboard/ssodb_v1 2>/dev/null || true)
+      if [ -z "$CUR_VAL" ] || ! echo "$CUR_VAL" | jq empty 2>/dev/null; then
+        kubectl exec -n {{ rook_ceph_namespace | default('rook-ceph') }} "$FIRST_POD" -c mgr -- ceph -n client.admin --key="$ADMIN_KEY" config-key rm mgr/dashboard/ssodb_v1 2>/dev/null || true
+      fi
+
+      # 1) Keycloak SAML メタデータと SP 証明書/鍵を全 MGR Pod に配置
+      IDP_METADATA_URL="{{ keycloak_url }}/realms/master/protocol/saml/descriptor"
+      SAML_XML=$(curl -k -s "$IDP_METADATA_URL" || true)
+      if [ -z "$SAML_XML" ]; then
+        # ホストから外部 URL で解決できない場合のフォールバック (内部 URL 経由)
+        SAML_XML=$(curl -k -s "{{ keycloak_internal_url }}/realms/master/protocol/saml/descriptor" || true)
+      fi
+      if [ -z "$SAML_XML" ]; then
+        # さらにフォールバック: クラスタ内 Pod 経由で取得
+        SAML_XML=$(kubectl run curl-saml-tmp-$$ --image=curlimages/curl:latest --rm -i --restart=Never --command -- curl -s "{{ keycloak_internal_url }}/realms/master/protocol/saml/descriptor" 2>/dev/null || true)
+      fi
+
+      if [ -z "$SAML_XML" ]; then
+        echo "警告: Keycloak SAML メタデータの取得に失敗しました。SAML SSO の設定をスキップします。" >&2
+      else
+        TMP_DIR=$(mktemp -d)
+        printf '%s' "$SAML_XML" > "$TMP_DIR/keycloak-saml-metadata.xml"
+        openssl req -new -x509 -days 3650 -nodes -subj '/CN={{ ceph_dashboard_hostname }}' -keyout "$TMP_DIR/ceph-sp.key" -out "$TMP_DIR/ceph-sp.crt" 2>/dev/null
+        chmod 644 "$TMP_DIR/ceph-sp.key" "$TMP_DIR/ceph-sp.crt" "$TMP_DIR/keycloak-saml-metadata.xml"
+
+        for p in $MGR_PODS; do
+          kubectl cp "$TMP_DIR/keycloak-saml-metadata.xml" "{{ rook_ceph_namespace | default('rook-ceph') }}/$p:/tmp/keycloak-saml-metadata.xml" -c mgr 2>/dev/null || true
+          kubectl cp "$TMP_DIR/ceph-sp.crt" "{{ rook_ceph_namespace | default('rook-ceph') }}/$p:/tmp/ceph-sp.crt" -c mgr 2>/dev/null || true
+          kubectl cp "$TMP_DIR/ceph-sp.key" "{{ rook_ceph_namespace | default('rook-ceph') }}/$p:/tmp/ceph-sp.key" -c mgr 2>/dev/null || true
+        done
+        rm -rf "$TMP_DIR"
+
+        # 2) Active MGR Pod を特定
+        ACTIVE_NAME=$(kubectl exec -n {{ rook_ceph_namespace | default('rook-ceph') }} "$FIRST_POD" -c mgr -- ceph -n client.admin --key="$ADMIN_KEY" mgr stat -f json 2>/dev/null | jq -r '.active_name // empty' || true)
+        ACTIVE_POD=""
+        if [ -n "$ACTIVE_NAME" ]; then
+          for p in $MGR_PODS; do
+            if echo "$p" | grep -q "rook-ceph-mgr-${ACTIVE_NAME}-"; then
+              ACTIVE_POD="$p"
+              break
+            fi
+          done
+        fi
+        [ -z "$ACTIVE_POD" ] && ACTIVE_POD="$FIRST_POD"
+
+        # 3) Active MGR 上で SAML2 SSO をセットアップ
+        kubectl exec -n {{ rook_ceph_namespace | default('rook-ceph') }} "$ACTIVE_POD" -c mgr -- bash -c '
+          ceph -n client.admin --key="'"$ADMIN_KEY"'" dashboard sso setup saml2 "{{ ceph_dashboard_url }}" /tmp/keycloak-saml-metadata.xml username "{{ keycloak_url }}/realms/master" /tmp/ceph-sp.crt /tmp/ceph-sp.key || true
+          RAW_SSO=$(ceph -n client.admin --key="'"$ADMIN_KEY"'" config-key get mgr/dashboard/ssodb_v1 2>/dev/null || true)
+          if [ -n "$RAW_SSO" ] && echo "$RAW_SSO" | jq empty 2>/dev/null; then
+            echo "$RAW_SSO" | jq ".saml2.onelogin_settings.security.wantAssertionsEncrypted = false | .saml2.onelogin_settings.security.wantNameIdEncrypted = false | .saml2.onelogin_settings.security.allowRepeatAttributeName = true" > /tmp/new_ssodb.json
+            if [ -s /tmp/new_ssodb.json ] && jq empty /tmp/new_ssodb.json 2>/dev/null; then
+              ceph -n client.admin --key="'"$ADMIN_KEY"'" config-key set mgr/dashboard/ssodb_v1 -i /tmp/new_ssodb.json
+            fi
+          fi
+          ceph -n client.admin --key="'"$ADMIN_KEY"'" mgr module disable dashboard || true
+          ceph -n client.admin --key="'"$ADMIN_KEY"'" mgr module enable dashboard || true
+          ceph -n client.admin --key="'"$ADMIN_KEY"'" dashboard sso enable saml2 || true
+          ceph -n client.admin --key="'"$ADMIN_KEY"'" dashboard sso status || true
+        ' || true
+      fi
+    fi
+  changed_when: false
+  failed_when: false
+
+- name: Ceph Dashboard UI 言語を日本語 (ja_JP) に設定
+  ansible.builtin.shell: |
+    if kubectl get deployment -n {{ rook_ceph_namespace | default('rook-ceph') }} rook-ceph-operator >/dev/null 2>&1; then
+      kubectl exec -n {{ rook_ceph_namespace | default('rook-ceph') }} deploy/rook-ceph-operator -- \
+        ceph -c /var/lib/rook/rook-ceph/rook-ceph.config -k /var/lib/rook/rook-ceph/client.admin.keyring \
+        dashboard set language ja_JP || true
+    fi
+  changed_when: false
+  failed_when: false
+
+- name: Web UI 管理ツール群 (pgAdmin 4) のロールアウト完了を一括確認
+  ansible.builtin.shell: |
+    kubectl rollout status deployment/pgadmin -n {{ keycloak_namespace | default('keycloak') }} --timeout={{ default_rollout_timeout }} || true
+  changed_when: false
+  failed_when: false
+
+- name: secrets.txt を生成
+  ansible.builtin.template:
+    src: secrets.txt.j2
+    dest: "{{ project_root }}/secrets.txt"
+    mode: '0600'
+
+- name: 認証情報をコンソールに表示
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      認証・アクセス情報 (Ollama on K3D)
+      ========================================
+
+      【Open WebUI (Local AI Chat)】[Worker]
+        URL: https://{{ open_webui_hostname }}
+        SSO Login: Keycloak OIDC (ワンクリックログイン)
+        Default Locale: {{ open_webui_default_locale | default('ja-JP') }}
+
+      【Ollama (LLM API)】[Worker]
+        URL: https://{{ ollama_hostname }}
+        Port: {{ ollama_port | default(11434) }}
+        GPU Acceleration: AMD ROCm (GPU) / XDNA (NPU)
+
+      【Keycloak SSO】[Server]
+        URL: https://{{ keycloak_hostname }}
+        Admin Console: https://{{ keycloak_hostname }}/admin
+        Username: {{ keycloak_admin_user }}
+        Password: {{ keycloak_admin_password }}
+
+      【Grafana Monitoring】[Server]
+        URL: https://{{ grafana_hostname }}
+        Username: admin
+        Password: {{ grafana_admin_password }}
+        SSO Login: Keycloak OIDC (ワンクリックログイン)
+
+      【Rancher Cluster Manager】[Server]
+        URL: https://{{ rancher_hostname }}
+        Username: admin
+        Password: {{ rancher_admin_password }}
+        SSO Login: Keycloak OIDC (ワンクリックログイン)
+
+      【pgAdmin 4】[Server]
+        URL: https://{{ pgadmin_hostname }}
+        Username: {{ pgadmin_admin_email }}
+        Password: {{ pgadmin_admin_password }}
+        SSO Login: Keycloak OIDC (ワンクリックログイン)
+
+      【Keycloak OIDC クライアント】
+        Open WebUI: clientId={{ open_webui_client_id | default('open-webui') }}, clientSecret={{ open_webui_client_secret | default('open-webui-secret') }}
+        Rancher: clientId=rancher, clientSecret={{ rancher_client_secret }}
+        Grafana: clientId=grafana, clientSecret={{ grafana_client_secret }}
+        pgAdmin 4: clientId=pgadmin, clientSecret={{ pgadmin_client_secret | default('pgadmin-secret') }}
+        Traefik Dashboard: clientId=traefik, clientSecret={{ traefik_client_secret | default('traefik-secret') }}
+
+        Issuer: https://{{ keycloak_hostname }}/realms/master
+      ========================================

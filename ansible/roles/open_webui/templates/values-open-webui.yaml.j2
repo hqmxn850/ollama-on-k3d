@@ -1,0 +1,101 @@
+# ==============================================================================
+# Open WebUI Helm Values Template
+# リテラルは ansible/group_vars/all.yml (Single Source of Truth) を参照
+# ==============================================================================
+
+nameOverride: "open-webui"
+fullnameOverride: "open-webui"
+
+# 外部 Ollama (本クラスタの独立した Ollama Pod / Service) を利用
+ollama:
+  enabled: false
+
+# クラスタ内 Ollama エンドポイント
+ollamaUrls:
+  - "http://ollama.{{ ollama_namespace | default('ollama') }}.svc.cluster.local:{{ ollama_port | default(11434) }}"
+
+# Pipelines, Tika, Terminals は不要のため無効化
+pipelines:
+  enabled: false
+
+tika:
+  enabled: false
+
+terminals:
+  enabled: false
+
+# 単一レプリカ環境では Redis 不要のインメモリマネージャを使用
+websocket:
+  enabled: false
+
+image:
+  repository: {{ open_webui_image_repository | default('ghcr.io/open-webui/open-webui') | quote }}
+  tag: {{ open_webui_image_tag | default('v0.11.4') | quote }}
+  pullPolicy: IfNotPresent
+
+# Local Path PVC ストレージ永続化
+persistence:
+  enabled: true
+  size: {{ open_webui_storage_size | default('30Gi') | quote }}
+  storageClass: {{ open_webui_storage_class | default('local-path') | quote }}
+  accessModes:
+    - ReadWriteOnce
+
+nodeSelector:
+  node-role.kubernetes.io/worker: "true"
+
+# Traefik Ingress + cert-manager TLS
+ingress:
+  enabled: true
+  class: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: "{{ cluster_issuer_name | default('internal-ca-issuer') }}"
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  host: {{ open_webui_hostname | quote }}
+  tls: true
+  existingSecret: "open-webui-tls"
+
+# リソース割り当て
+resources:
+  requests:
+    cpu: {{ open_webui_cpu_request | default('250m') | quote }}
+    memory: {{ open_webui_memory_request | default('512Mi') | quote }}
+  limits:
+    memory: {{ open_webui_memory_limit | default('4Gi') | quote }}
+
+# Keycloak OIDC SSO 連携 & バックエンド環境変数
+extraEnvVars:
+  # ベース URL & アプリケーション設定
+  - name: WEBUI_URL
+    value: "https://{{ open_webui_hostname }}"
+  - name: WEBUI_NAME
+    value: "Open WebUI (Local AI)"
+  - name: DEFAULT_LOCALE
+    value: "ja-JP"
+  - name: WEBUI_AUTH
+    value: "true"
+  # Keycloak OIDC 認証設定
+  - name: ENABLE_OAUTH_SIGNUP
+    value: "true"
+  - name: OAUTH_CLIENT_ID
+    value: {{ open_webui_client_id | default('open-webui') | quote }}
+  - name: OAUTH_CLIENT_SECRET
+    value: {{ open_webui_client_secret | quote }}
+  - name: OPENID_PROVIDER_URL
+    value: "http://keycloak-keycloak.{{ keycloak_namespace | default('keycloak') }}.svc.cluster.local:{{ keycloak_http_port | default(8080) }}/realms/{{ keycloak_realm | default('master') }}/.well-known/openid-configuration"
+  - name: OPENID_REDIRECT_URI
+    value: "https://{{ open_webui_hostname }}/oauth/oidc/callback"
+  - name: OAUTH_PROVIDER_NAME
+    value: "Keycloak"
+  - name: OAUTH_SCOPES
+    value: "openid email profile"
+  - name: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+    value: "true"
+  - name: ENABLE_OAUTH_PERSISTENT_CONFIG
+    value: "false"
+  # OGA (ONNX Runtime GenAI) OpenAI 互換 API 連携
+  - name: OPENAI_API_BASE_URLS
+    value: "http://oga.{{ oga_namespace | default('oga') }}.svc.cluster.local:{{ oga_port | default(8000) }}/v1"
+  - name: OPENAI_API_KEYS
+    value: "none"

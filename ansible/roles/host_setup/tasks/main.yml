@@ -1,0 +1,236 @@
+- name: kubectl および helm の最新化・インストールを保証
+  ansible.builtin.shell: |
+    source "{{ playbook_dir }}/../../lib/common.sh"
+    ensure_latest_kubectl
+    ensure_latest_helm
+  register: cli_tools_setup
+  changed_when: "'更新しました' in cli_tools_setup.stdout"
+
+- name: ホスト上に OnnxRuntime GenAI (OGA) の存在確認・インストールを保証
+  ansible.builtin.shell: |
+    if ! python3 -c "import onnxruntime_genai" 2>/dev/null; then
+      python3 -m pip install onnxruntime-genai
+    fi
+  register: host_oga_install
+  changed_when: "'Successfully installed' in host_oga_install.stdout"
+  when: oga_enabled | default(true) | bool
+  failed_when: false
+
+
+- name: 前提ツールの存在確認 (podman, k3d, kubectl, helm)
+  ansible.builtin.command: "which {{ item }}"
+  loop:
+    - podman
+    - k3d
+    - kubectl
+    - helm
+  changed_when: false
+
+
+- name: Podman socket サービスを有効化・起動
+  ansible.builtin.systemd:
+    name: podman.socket
+    state: started
+    enabled: true
+  become: true
+
+- name: Podman socket ファイルのパーミッションを設定
+  ansible.builtin.file:
+    path: /run/podman/podman.sock
+    mode: '0666'
+  become: true
+
+- name: Docker ソケット互換リンクの作成 (/var/run/docker.sock)
+  ansible.builtin.file:
+    src: /run/podman/podman.sock
+    dest: /var/run/docker.sock
+    state: link
+    force: true
+  become: true
+
+- name: Podman ネットワーク情報を取得
+  ansible.builtin.command: "podman network inspect {{ podman_network }}"
+  register: podman_net_inspect
+  failed_when: false
+  changed_when: false
+  become: true
+
+- name: Podman ネットワークの DNS 設定を確認
+  ansible.builtin.set_fact:
+    net_exists: "{{ podman_net_inspect.rc == 0 }}"
+    net_dns_enabled: >-
+      {{
+        (podman_net_inspect.stdout | from_json)[0].dns_enabled | default(false)
+        if podman_net_inspect.rc == 0 else false
+      }}
+
+- name: DNS が無効な場合は既存ネットワークを削除
+  ansible.builtin.command: "podman network rm {{ podman_network }}"
+  when: net_exists and not net_dns_enabled
+  become: true
+
+- name: DNS 有効な Podman ネットワークを作成
+  ansible.builtin.command: "podman network create {{ podman_network }}"
+  when: not net_exists or not net_dns_enabled
+  become: true
+
+# --- firewalld trusted zone 登録 (cross-node pod-to-pod 転送許可) ---
+- ansible.builtin.import_tasks: firewalld.yml
+
+- name: NetworkManager dnsmasq 設定用ディレクトリを準備
+  ansible.builtin.file:
+    path: /etc/NetworkManager/dnsmasq.d
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Podman registries 設定ディレクトリを準備
+  ansible.builtin.file:
+    path: /etc/containers/registries.conf.d
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Podman 短縮名解決設定を配置 (TTYなしでの対話プロンプト抑止)
+  ansible.builtin.copy:
+    content: |
+      # K3D on Podman: TTY なし環境での短縮名解決プロンプト抑止
+      short-name-mode = "permissive"
+      unqualified-search-registries = ["docker.io", "quay.io"]
+    dest: /etc/containers/registries.conf.d/01-shortnames-permissive.conf
+    mode: '0644'
+  become: true
+
+- name: Podman containers 設定ディレクトリを準備
+  ansible.builtin.file:
+    path: /etc/containers/containers.conf.d
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Podman チューニング & リソース制限緩和設定を配置 (limits / log_size_max / log_driver / events_logger)
+  ansible.builtin.copy:
+    content: |
+      # K3D on Podman: プロセス数・ファイルディスクリプタ・メモリロック制限の緩和 & チューニング
+      [containers]
+      pids_limit = 0
+      log_driver = "{{ podman_log_driver | default('k8s-file') }}"
+      log_size_max = {{ podman_log_size_max | default(52428800) }}
+      default_ulimits = [
+        "nofile=1048576:1048576",
+        "nproc=-1:-1",
+        "memlock=-1:-1"
+      ]
+
+      [engine]
+      events_logger = "{{ podman_events_logger | default('file') }}"
+    dest: /etc/containers/containers.conf.d/02-limits.conf
+    mode: '0644'
+  become: true
+  register: podman_limits_config
+
+- name: Podman 設定変更時に podman.service を再起動
+  ansible.builtin.systemd:
+    name: podman.service
+    state: restarted
+  when: podman_limits_config.changed
+  become: true
+  failed_when: false
+
+- name: Ceph / RBD カーネルモジュール自動ロード設定を配置
+  ansible.builtin.copy:
+    content: |
+      # Rook-Ceph CSI / RBD 用カーネルモジュール
+      rbd
+      ceph
+      libceph
+    dest: /etc/modules-load.d/ceph.conf
+    mode: '0644'
+- name: Ceph / RBD カーネルモジュールをロード
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop:
+    - libceph
+    - rbd
+    - ceph
+  changed_when: false
+  become: true
+
+- name: ネットワーク チューニング用 (BBR / IPVS) カーネルモジュール自動ロード設定を配置
+  ansible.builtin.copy:
+    content: |
+      # TCP BBR 輻輳制御 & IPVS (Kube-proxy) 用カーネルモジュール
+      tcp_bbr
+      ip_vs
+      ip_vs_rr
+      ip_vs_wrr
+      ip_vs_sh
+    dest: /etc/modules-load.d/network-tuning.conf
+    mode: '0644'
+  become: true
+
+- name: ネットワーク チューニング用 (BBR / IPVS) カーネルモジュールをロード
+  ansible.builtin.command: "modprobe {{ item }}"
+  loop:
+    - tcp_bbr
+    - ip_vs
+    - ip_vs_rr
+    - ip_vs_wrr
+    - ip_vs_sh
+  changed_when: false
+  become: true
+
+# --- TCP/IP チューニング ---
+
+- name: TCP/IP チューニング設定ファイルをホストに配置
+  ansible.builtin.template:
+    src: 99-tuning.conf.j2
+    dest: /etc/sysctl.d/99-tuning.conf
+    mode: '0644'
+  become: true
+  register: sysctl_host_config
+
+- name: ホストの sysctl 設定を反映
+  ansible.builtin.command: sysctl -p /etc/sysctl.d/99-tuning.conf
+  when: sysctl_host_config.changed
+  become: true
+  changed_when: true
+
+- name: K3D コンテナ ID を取得
+  ansible.builtin.shell: >
+    podman ps --format '{{ '{{' }}.ID{{ '}}' }}' --filter 'name=k3d-'
+  register: k3d_containers
+  changed_when: false
+  become: true
+
+- name: K3D コンテナに sysctl ディレクトリを作成
+  ansible.builtin.command: "podman exec {{ item }} mkdir -p /etc/sysctl.d"
+  loop: "{{ k3d_containers.stdout_lines }}"
+  become: true
+  changed_when: true
+
+- name: K3D コンテナに sysctl 設定ファイルを配布
+  ansible.builtin.command: "podman cp /etc/sysctl.d/99-tuning.conf {{ item }}:/etc/sysctl.d/99-tuning.conf"
+  loop: "{{ k3d_containers.stdout_lines }}"
+  become: true
+  changed_when: true
+
+- name: K3D コンテナで sysctl 設定を反映
+  ansible.builtin.command: "podman exec {{ item }} sysctl -p /etc/sysctl.d/99-tuning.conf"
+  loop: "{{ k3d_containers.stdout_lines }}"
+  become: true
+  register: sysctl_container_apply
+  changed_when: true
+  failed_when: false
+
+- name: 稼働中 K3D コンテナの cgroup pids.max を max に設定
+  ansible.builtin.shell: |
+    for f in /sys/fs/cgroup/machine.slice/libpod-*.scope/pids.max; do
+      [ -f "$f" ] && echo "max" > "$f"
+    done
+  become: true
+  changed_when: true
+  failed_when: false
+
+# --- 動的 swappiness ガバナー (K3D コンテナの sysctl -p 適用後、静的値の上書きを最終化) ---
+- ansible.builtin.import_tasks: dynamic_swappiness.yml
+

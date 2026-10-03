@@ -1,0 +1,13 @@
+---
+- name: "[Phase 2] Keycloak 認証基盤プロビジョニング (keycloak)"
+  hosts: local
+  gather_facts: true
+  roles:
+    - role: keycloak
+      tags:
+        - storage_auth
+        - auth
+        - keycloak
+
+
+

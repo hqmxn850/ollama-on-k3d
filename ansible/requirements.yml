@@ -1,0 +1,6 @@
+# Ansible 依存コレクション定義 (K3D on Podman デプロイ用)
+---
+collections:
+  - name: containers.podman
+  - name: kubernetes.core
+  - name: community.general

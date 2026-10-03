@@ -1,0 +1,139 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: {{ cluster_name }}
+servers: {{ servers }}
+agents: {{ agents }}
+image: {{ k3s_image }}
+network: {{ podman_network }}
+options:
+  k3d:
+    wait: true
+    timeout: "{{ k3d_create_timeout | default('300s') }}"
+    disableLoadbalancer: false
+    disableImageVolume: false
+{% if k3d_gpus | default('') | string | length > 0 %}
+  runtime:
+    gpuRequest: {{ k3d_gpus }}
+{% endif %}
+  k3s:
+    extraArgs:
+      - arg: "--kubelet-arg=feature-gates=NodeSwap=true"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=feature-gates=MemoryQoS=true"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=fail-swap-on=false"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=runtime-request-timeout=15m"
+        nodeFilters:
+          - "all"
+      - arg: "--snapshotter=native"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=max-pods={{ kubelet_max_pods | default(250) }}"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=kube-reserved=cpu=200m,memory=512Mi"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=system-reserved=cpu=200m,memory=512Mi"
+        nodeFilters:
+          - "all"
+      - arg: "--node-label=node-role.kubernetes.io/control-plane=true"
+        nodeFilters:
+          - server:*
+      - arg: "--node-label=tier=core"
+        nodeFilters:
+          - server:*
+      - arg: "--node-label=role=control-plane"
+        nodeFilters:
+          - server:*
+      - arg: "--node-label=node-role.kubernetes.io/worker=true"
+        nodeFilters:
+          - agent:*
+      - arg: "--node-label=tier=ai"
+        nodeFilters:
+          - agent:*
+      - arg: "--node-label=role=worker"
+        nodeFilters:
+          - agent:*
+      - arg: "--kube-apiserver-arg=max-requests-inflight=1000"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-apiserver-arg=max-mutating-requests-inflight=500"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-controller-manager-arg=node-cidr-mask-size={{ k8s_node_cidr_mask_size | default(24) }}"
+        nodeFilters:
+          - server:*
+      - arg: "--flannel-backend={{ flannel_backend | default('host-gw') }}"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-proxy-arg=proxy-mode={{ kube_proxy_mode | default('ipvs') }}"
+        nodeFilters:
+          - "all"
+      - arg: "--etcd-expose-metrics=true"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-proxy-arg=metrics-bind-address=0.0.0.0:10249"
+        nodeFilters:
+          - "all"
+      - arg: "--kube-controller-manager-arg=bind-address=0.0.0.0"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-scheduler-arg=bind-address=0.0.0.0"
+        nodeFilters:
+          - server:*
+      - arg: "--selinux=false"
+        nodeFilters:
+          - "all"
+{% if disable_traefik %}
+      - arg: "--disable=traefik"
+        nodeFilters:
+          - server:*
+{% endif %}
+{% if kubelet_user_namespace %}
+      - arg: "--kubelet-arg=feature-gates=KubeletInUserNamespace=true"
+        nodeFilters:
+          - server:*
+          - agent:*
+{% endif %}
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true
+volumes:
+  - volume: {{ manifest_dir }}:/var/lib/rancher/k3s/server/manifests/auto-deploy
+    nodeFilters:
+      - server:*
+  - volume: {{ project_root }}/manifests/containerd.d:/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d:ro
+    nodeFilters:
+      - "all"
+  - volume: /lib/modules:/lib/modules:ro
+    nodeFilters:
+      - "all"
+  - volume: /run/udev:/run/udev:ro
+    nodeFilters:
+      - "all"
+  - volume: /dev/shm:/dev/shm
+    nodeFilters:
+      - "all"
+  - volume: {{ kfd_device_path | default('/dev/kfd') }}:{{ kfd_device_path | default('/dev/kfd') }}
+    nodeFilters:
+      - servers:*
+      - agents:*
+  - volume: {{ dri_device_path | default('/dev/dri') }}:{{ dri_device_path | default('/dev/dri') }}
+    nodeFilters:
+      - servers:*
+      - agents:*
+  - volume: {{ accel_device_path | default('/dev/accel') }}:{{ accel_device_path | default('/dev/accel') }}
+    nodeFilters:
+      - servers:*
+      - agents:*
+
+registries:
+  config: |
+{{ lookup('template', 'registries.yaml.j2') | indent(4, true) }}
+  config_path: "/etc/rancher/k3s/registries.yaml"

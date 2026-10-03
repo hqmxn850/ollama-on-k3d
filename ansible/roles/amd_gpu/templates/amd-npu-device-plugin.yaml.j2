@@ -1,0 +1,63 @@
+---
+# ==============================================================================
+# AMD NPU (XDNA) Device Plugin DaemonSet
+# リテラルは ansible/group_vars/all.yml (Single Source of Truth) を参照
+# generic-device-plugin を用いて /dev/accel/* を amd.com/npu として kubelet に登録
+# ==============================================================================
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ amd_npu_daemonset_name | default('amd-npu-device-plugin') }}
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ amd_npu_daemonset_name | default('amd-npu-device-plugin') }}
+    app.kubernetes.io/component: device-plugin
+    app.kubernetes.io/part-of: amd-accelerator
+spec:
+  selector:
+    matchLabels:
+      name: {{ amd_npu_daemonset_name | default('amd-npu-device-plugin') }}
+  template:
+    metadata:
+      labels:
+        name: {{ amd_npu_daemonset_name | default('amd-npu-device-plugin') }}
+        app.kubernetes.io/name: {{ amd_npu_daemonset_name | default('amd-npu-device-plugin') }}
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: "Exists"
+          effect: "NoSchedule"
+        - operator: "Exists"
+          effect: "NoExecute"
+      containers:
+        - name: generic-device-plugin
+          image: {{ amd_npu_device_plugin_image | default('docker.io/squat/generic-device-plugin:latest') | quote }}
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--domain={{ amd_npu_resource_domain | default('amd.com') }}"
+            - >-
+              --device={"name": "{{ amd_npu_device_name | default('npu') }}", "groups": [{"count": {{ amd_npu_device_count | default(1) }}, "paths": [{"path": "{{ accel_device_path | default('/dev/accel') }}/*"}]}]}
+            - "--log-level=info"
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: device-plugin
+              mountPath: /var/lib/kubelet/device-plugins
+            - name: dev-accel
+              mountPath: {{ accel_device_path | default('/dev/accel') }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      volumes:
+        - name: device-plugin
+          hostPath:
+            path: /var/lib/kubelet/device-plugins
+        - name: dev-accel
+          hostPath:
+            path: {{ accel_device_path | default('/dev/accel') }}

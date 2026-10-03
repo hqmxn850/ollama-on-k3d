@@ -1,0 +1,736 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgadmin-servers
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+  labels:
+    app.kubernetes.io/name: pgadmin
+data:
+  servers.json: |
+    {
+      "Servers": {
+        "1": {
+          "Name": "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}",
+          "Group": "Keycloak",
+          "Host": "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}",
+          "Port": {{ postgres_port | default(5432) }},
+          "MaintenanceDB": "postgres",
+          "Username": "postgres",
+          "SSLMode": "prefer",
+          "PassFile": ".pgpass",
+          "Shared": false
+        },
+        "2": {
+          "Name": "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}",
+          "Group": "Keycloak",
+          "Host": "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}",
+          "Port": {{ postgres_port | default(5432) }},
+          "MaintenanceDB": "postgres",
+          "Username": "postgres",
+          "SSLMode": "prefer",
+          "PassFile": ".pgpass",
+          "Shared": false
+        },
+        "3": {
+          "Name": "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}",
+          "Group": "Keycloak",
+          "Host": "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}",
+          "Port": {{ postgres_port | default(5432) }},
+          "MaintenanceDB": "postgres",
+          "Username": "postgres",
+          "SSLMode": "prefer",
+          "PassFile": ".pgpass",
+          "Shared": false
+        },
+        "4": {
+          "Name": "grafana-postgresql",
+          "Group": "Grafana",
+          "Host": "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}",
+          "Port": {{ postgres_port | default(5432) }},
+          "MaintenanceDB": "grafana",
+          "Username": "grafana",
+          "SSLMode": "prefer",
+          "PassFile": ".pgpass",
+        }
+      }
+    }
+  pgpass: |
+    {{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
+    {{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
+    {{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
+    {{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    *:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    *:{{ postgres_port | default(5432) }}:*:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    *:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
+  preferences.json: |
+    {
+      "preferences": {
+        "misc:user_interface:user_language": "ja"
+      }
+    }
+  config_system.py: |
+    # pgAdmin 4 Logging Configuration
+    import logging
+    _log_level_name = '{{ pgadmin_log_level | default("DEBUG") }}'.upper()
+    _log_level = getattr(logging, _log_level_name, logging.DEBUG)
+    CONSOLE_LOG_LEVEL = _log_level
+    FILE_LOG_LEVEL = _log_level
+    LOG_FILE = '/var/log/pgadmin4/pgadmin4.log'
+    LOG_AUTHENTICATED_USER = True
+
+    # pgAdmin 4 System Configuration - Keycloak OIDC SSO
+    AUTHENTICATION_SOURCES = ['oauth2', 'internal']
+    OAUTH2_AUTO_CREATE_USER = True
+
+    # リバースプロキシ (Traefik) 経由の SSL / ホスト / ポート透過設定
+    PROXY_X_FOR_COUNT = 1
+    PROXY_X_PROTO_COUNT = 1
+    PROXY_X_HOST_COUNT = 1
+    PROXY_X_PORT_COUNT = 1
+    PROXY_X_PREFIX_COUNT = 1
+
+    # Cookie & CSRF セキュリティ設定 (HTTPS 運用・セッション保護・Missing CSRF 防止)
+    SESSION_COOKIE_NAME = 'pga4_session'
+    SESSION_COOKIE_SECURE = True
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    WTF_CSRF_TIME_LIMIT = None  # セッション生存期間中 CSRF トークンを有効化 (タイムアウトによる Missing CSRF を防止)
+    MAX_SESSION_IDLE_TIME = 1440  # 24時間アイドル許容 (短時間でのセッション切れを防止)
+
+    # 固定暗号化キー & 全 Pod 共通セキュリティキー (CSRF / セッション一貫性)
+    import hashlib, base64
+    STATIC_CRYPT_KEY = '{{ pgadmin_static_crypt_key | default("k3d-pgadmin-master-key-2026") }}'
+    _seed = STATIC_CRYPT_KEY.encode('utf-8')
+    SECRET_KEY = base64.urlsafe_b64encode(hashlib.sha256(_seed + b'_secret').digest()).decode('utf-8')
+    CSRF_SESSION_KEY = base64.urlsafe_b64encode(hashlib.sha256(_seed + b'_csrf').digest()).decode('utf-8')
+    SECURITY_PASSWORD_SALT = base64.urlsafe_b64encode(hashlib.sha256(_seed + b'_salt').digest()).decode('utf-8')
+
+    OAUTH2_CONFIG = [
+        {
+            'OAUTH2_NAME': 'keycloak',
+            'OAUTH2_DISPLAY_NAME': 'Keycloak',
+            'OAUTH2_CLIENT_ID': 'pgadmin',
+            'OAUTH2_CLIENT_SECRET': '{{ pgadmin_client_secret | default("pgadmin-secret") }}',
+            'OAUTH2_SERVER_METADATA_URL': '{{ keycloak_internal_url | default("http://keycloak-keycloak." ~ (keycloak_namespace | default("keycloak")) ~ ".svc.cluster.local:8080") }}/realms/master/.well-known/openid-configuration',
+            'OAUTH2_SCOPE': 'openid email profile',
+            'OAUTH2_ICON': 'fa-key',
+            'OAUTH2_BUTTON_COLOR': '#007bff',
+            'OAUTH2_SSL_CERT_VERIFICATION': False,
+            'OAUTH2_LOGOUT_URL': 'https://{{ keycloak_hostname }}/realms/master/protocol/openid-connect/logout?post_logout_redirect_uri=https://{{ pgadmin_hostname }}/'
+        }
+    ]
+
+    PG_PASSWORD = "{{ keycloak_pg_password | default('keycloak-pg-2026') }}"
+    GRAFANA_PG_PASSWORD = "{{ grafana_db_password | default('grafana-db-2026') }}"
+    HARBOR_PG_PASSWORD = "{{ harbor_db_password | default('harbor-db-2026') }}"
+
+    def _encrypt_password(pwd):
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location('crypto', '/pgadmin4/pgadmin/utils/crypto.py')
+            crypto = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(crypto)
+            enc = crypto.encrypt(pwd, STATIC_CRYPT_KEY)
+            if isinstance(enc, bytes):
+                return enc.decode('utf-8')
+            return enc
+        except Exception:
+            return None
+
+    # master_password.py パッチ（常に固定キー STATIC_CRYPT_KEY を返却）
+    def _apply_master_password_patch():
+        import os
+        mp_path = '/pgadmin4/pgadmin/utils/master_password.py'
+        if os.path.exists(mp_path):
+            try:
+                with open(mp_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                patch_marker = '# K3D_STATIC_CRYPT_KEY_PATCH'
+                if patch_marker not in content:
+                    target = "def get_crypt_key():\n    \"\"\"\n    Returns the crypt key\n    :return: the key\n    \"\"\""
+                    replacement = f"def get_crypt_key():\n    \"\"\"\n    Returns the crypt key\n    :return: the key\n    \"\"\"\n    {patch_marker}\n    return True, '{STATIC_CRYPT_KEY}'"
+                    if target in content:
+                        content = content.replace(target, replacement, 1)
+                        with open(mp_path, 'w', encoding='utf-8') as f:
+                            f.write(content)
+            except Exception:
+                pass
+
+    try:
+        import pgadmin.utils.master_password as _mp
+        _mp.get_crypt_key = lambda: (True, STATIC_CRYPT_KEY)
+    except Exception:
+        pass
+
+    # Keycloak SSO で自動プロビジョニングされたユーザーに Administrator (role 1) を自動付与 & 言語を日本語に設定
+    try:
+        from pgadmin.authenticate import oauth2 as _oa
+        _orig_auto_create = _oa.OAuth2Authentication._OAuth2Authentication__auto_create_user
+        def _patched_auto_create(self, username, email):
+            res, data = _orig_auto_create(self, username, email)
+            if res:
+                try:
+                    from pgadmin.model import User, Role, db
+                    u = User.query.filter_by(username=username, auth_source=_oa.OAUTH2).first()
+                    admin_role = Role.query.filter_by(name='Administrator').first()
+                    if u and admin_role and admin_role not in u.roles:
+                        u.roles.append(admin_role)
+                        db.session.commit()
+                    # ユーザー言語を日本語 ('ja') に設定
+                    import sqlite3
+                    db_path = '/var/lib/pgadmin/pgadmin4.db'
+                    conn = sqlite3.connect(db_path)
+                    cur = conn.cursor()
+                    cur.execute("SELECT id FROM preferences WHERE name = 'user_language'")
+                    pref = cur.fetchone()
+                    if pref and u:
+                        pid = pref[0]
+                        cur.execute("SELECT id FROM user_preferences WHERE pid = ? AND uid = ?", (pid, u.id))
+                        if not cur.fetchone():
+                            cur.execute("INSERT INTO user_preferences (pid, uid, value) VALUES (?, ?, 'ja')", (pid, u.id))
+                            conn.commit()
+                    conn.close()
+                    if u:
+                        _sync_servers(u.id)
+                        _sync_pgpass()
+                except Exception:
+                    pass
+            return res, data
+        _oa.OAuth2Authentication._OAuth2Authentication__auto_create_user = _patched_auto_create
+    except Exception:
+        pass
+
+    # === PostgreSQL 認証情報 (.pgpass) 自動プロビジョニング・同期 ===
+    def _sync_pgpass():
+        import os, glob, sqlite3
+        pgpass_src = '/etc/pgadmin/pgpass'
+        if not os.path.exists(pgpass_src):
+            return
+        try:
+            with open(pgpass_src, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            for global_path in ['/var/lib/pgadmin/.pgpass', '/var/lib/pgadmin/pgpass', '/root/.pgpass']:
+                try:
+                    with open(global_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    os.chmod(global_path, 0o600)
+                except Exception:
+                    pass
+
+            storage_base = '/var/lib/pgadmin/storage'
+            os.makedirs(storage_base, mode=0o700, exist_ok=True)
+            if os.path.exists(storage_base):
+                for user_dir in os.listdir(storage_base):
+                    full_dir = os.path.join(storage_base, user_dir)
+                    if os.path.isdir(full_dir):
+                        target = os.path.join(full_dir, '.pgpass')
+                        try:
+                            with open(target, 'w', encoding='utf-8') as f:
+                                f.write(content)
+                            os.chmod(target, 0o600)
+                        except Exception:
+                            pass
+
+            db_path = '/var/lib/pgadmin/pgadmin4.db'
+            if os.path.exists(db_path):
+                conn = sqlite3.connect(db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT username FROM user")
+                for (un,) in cur.fetchall():
+                    dirname = un.replace('@', '_').replace('/', 'slash').replace('\\', 'slash')
+                    if len(dirname) == 0 or dirname[0].isdigit():
+                        dirname = 'pga_user_' + dirname
+                    target_dir = os.path.join(storage_base, dirname)
+                    os.makedirs(target_dir, mode=0o700, exist_ok=True)
+                    target = os.path.join(target_dir, '.pgpass')
+                    try:
+                        with open(target, 'w', encoding='utf-8') as f:
+                            f.write(content)
+                        os.chmod(target, 0o600)
+                    except Exception:
+                        pass
+                conn.close()
+        except Exception:
+            pass
+
+    # === PostgreSQL サーバー自動登録・同期 (Primary, Read-0, Read-1) ===
+    def _sync_servers(target_uid=None):
+        import os, sqlite3
+        db_path = '/var/lib/pgadmin/pgadmin4.db'
+        if not os.path.exists(db_path):
+            return
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            servers_def = [
+                ("{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", "Keycloak", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
+                ("{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}", "Keycloak", "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
+                ("{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}", "Keycloak", "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
+                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD),
+                ("harbor-postgresql", "Harbor", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "harbor", "harbor", HARBOR_PG_PASSWORD)
+            ]
+            conn_params = '{"passfile": ".pgpass", "sslmode": "prefer"}'
+
+            if target_uid is not None:
+                users = [(target_uid,)]
+            else:
+                cur.execute("SELECT id FROM user")
+                users = cur.fetchall()
+
+            for (u_id,) in users:
+                group_cache = {}
+                for s_name, s_group, s_host, s_port, s_db, s_user, s_pwd in servers_def:
+                    if s_group not in group_cache:
+                        cur.execute("SELECT id FROM servergroup WHERE name = ? AND user_id = ?", (s_group, u_id))
+                        grp = cur.fetchone()
+                        if grp:
+                            group_cache[s_group] = grp[0]
+                        else:
+                            cur.execute("INSERT INTO servergroup (name, user_id) VALUES (?, ?)", (s_group, u_id))
+                            group_cache[s_group] = cur.lastrowid
+                    grp_id = group_cache[s_group]
+                    s_enc_pwd = _encrypt_password(s_pwd)
+
+                    cur.execute("SELECT id FROM server WHERE user_id = ? AND name = ?", (u_id, s_name))
+                    srv = cur.fetchone()
+                    if srv:
+                        cur.execute("""
+                            UPDATE server SET
+                                host = ?, port = ?, maintenance_db = ?, username = ?, password = ?,
+                                save_password = 1, shared = 0, shared_username = ?,
+                                servergroup_id = ?, connection_params = ?
+                            WHERE id = ?
+                        """, (s_host, s_port, s_db, s_user, s_enc_pwd, s_user, grp_id, conn_params, srv[0]))
+                    else:
+                        cur.execute("""
+                            INSERT INTO server (
+                                name, servergroup_id, user_id, host, port, maintenance_db,
+                                username, password, save_password, shared,
+                                shared_username, connection_params
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, ?, ?)
+                        """, (s_name, grp_id, u_id, s_host, s_port, s_db, s_user, s_enc_pwd, s_user, conn_params))
+
+                # 旧名サーバーが存在する場合は削除
+                cur.execute("DELETE FROM server WHERE user_id = ? AND name IN ('Keycloak PostgreSQL (Primary)', 'Keycloak PostgreSQL (Read Only)')", (u_id,))
+
+            # 不要な共有サーバー設定の修正および sharedserver のクリーンアップ
+            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}', '{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}', '{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}', 'grafana-postgresql', 'harbor-postgresql')")
+            try:
+                cur.execute("DELETE FROM sharedserver")
+            except Exception:
+                pass
+
+            # ローカル管理者ユーザーのパスワードハッシュを確実に同期
+            try:
+                from flask_security.utils import hash_password
+                admin_pwd = "{{ pgadmin_admin_password | default('admin') }}"
+                admin_email = "{{ pgadmin_admin_email }}"
+                new_hash = hash_password(admin_pwd)
+                cur.execute("UPDATE user SET password = ? WHERE email = ? OR username = ?", (new_hash, admin_email, admin_email))
+            except Exception:
+                pass
+
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    # === pgAdmin 4 日本語化パッチ (ログイン画面・デフォルトロケール・既存ユーザーの完全日本語化) ===
+    def _apply_japanese_patches():
+        import os, re, sqlite3
+
+        # 1. ログイン画面テンプレート (未ログイン時の初期言語を ja に)
+        login_tmpl = '/pgadmin4/pgadmin/templates/security/login_user.html'
+        if os.path.exists(login_tmpl):
+            try:
+                with open(login_tmpl, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if "or 'en'" in content:
+                    content = content.replace("or 'en'", "or 'ja'")
+                    with open(login_tmpl, 'w', encoding='utf-8') as f:
+                        f.write(content)
+            except Exception:
+                pass
+
+        # 2. __init__.py (get_locale のデフォルト言語を ja にし、Cookie 判定バグを修正)
+        init_py = '/pgadmin4/pgadmin/__init__.py'
+        if os.path.exists(init_py):
+            try:
+                with open(init_py, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                content = content.replace("language = 'en'", "language = 'ja'")
+                if "hasattr(request.cookies, 'PGADMIN_LANGUAGE')" in content:
+                    content = content.replace(
+                        "elif hasattr(request.cookies, 'PGADMIN_LANGUAGE'):\n                language = getattr(\n                    request.cookies, 'PGADMIN_LANGUAGE', language\n                )",
+                        "elif 'PGADMIN_LANGUAGE' in request.cookies:\n                language = request.cookies.get('PGADMIN_LANGUAGE', language)"
+                    )
+                with open(init_py, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            except Exception:
+                pass
+
+        # 3. misc/__init__.py (User Language preference のデフォルト初期値を ja に)
+        misc_init = '/pgadmin4/pgadmin/misc/__init__.py'
+        if os.path.exists(misc_init):
+            try:
+                with open(misc_init, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                if "'user_language',\n            gettext(\"Language\"), 'options', 'en'" in content:
+                    content = content.replace(
+                        "'user_language',\n            gettext(\"Language\"), 'options', 'en'",
+                        "'user_language',\n            gettext(\"Language\"), 'options', 'ja'"
+                    )
+                    with open(misc_init, 'w', encoding='utf-8') as f:
+                        f.write(content)
+            except Exception:
+                pass
+
+        # 4. browser/__init__.py (ログイン後セッション・Cookie セット時のフォールバックを ja に & ログインユーザーへのサーバー自動同期フック)
+        browser_init = '/pgadmin4/pgadmin/browser/__init__.py'
+        if os.path.exists(browser_init):
+            try:
+                with open(browser_init, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                content = content.replace("user_languages.get() or 'en'", "user_languages.get() or 'ja'")
+                content = content.replace("language = 'en'", "language = 'ja'")
+
+                sync_hook_marker = '# K3D_SERVER_SYNC_HOOK'
+                if sync_hook_marker not in content:
+                    hook_code = (
+                        "\n# K3D_SERVER_SYNC_HOOK\n"
+                        "@blueprint.before_app_request\n"
+                        "def _k3d_sync_servers_on_request():\n"
+                        "    try:\n"
+                        "        from flask_login import current_user\n"
+                        "        if current_user and current_user.is_authenticated:\n"
+                        "            u_id = getattr(current_user, 'id', None)\n"
+                        "            if u_id:\n"
+                        "                import sys\n"
+                        "                if '/etc/pgadmin' not in sys.path:\n"
+                        "                    sys.path.insert(0, '/etc/pgadmin')\n"
+                        "                import config_system\n"
+                        "                if hasattr(config_system, '_sync_servers'):\n"
+                        "                    config_system._sync_servers(u_id)\n"
+                        "                if hasattr(config_system, '_sync_pgpass'):\n"
+                        "                    config_system._sync_pgpass()\n"
+                        "    except Exception:\n"
+                        "        pass\n"
+                    )
+                    content += hook_code
+                with open(browser_init, 'w', encoding='utf-8') as f:
+                    f.write(content)
+            except Exception:
+                pass
+
+        # 5. SQLite DB (既存ユーザーの言語設定を ja に更新)
+        db_path = '/var/lib/pgadmin/pgadmin4.db'
+        if os.path.exists(db_path):
+            try:
+                conn = sqlite3.connect(db_path)
+                cur = conn.cursor()
+                cur.execute("SELECT id FROM preferences WHERE name = 'user_language'")
+                pref = cur.fetchone()
+                if pref:
+                    pid = pref[0]
+                    cur.execute("SELECT id FROM user")
+                    users = cur.fetchall()
+                    for u in users:
+                        uid = u[0]
+                        cur.execute("SELECT id FROM user_preferences WHERE pid = ? AND uid = ?", (pid, uid))
+                        upref = cur.fetchone()
+                        if upref:
+                            cur.execute("UPDATE user_preferences SET value = 'ja' WHERE id = ?", (upref[0],))
+                        else:
+                            cur.execute("INSERT INTO user_preferences (pid, uid, value) VALUES (?, ?, 'ja')", (pid, uid))
+                    conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+        # 6. サーバー設定および認証情報の同期・暗号化キーパッチ
+        _apply_master_password_patch()
+        _sync_servers()
+        _sync_pgpass()
+        _sync_keys()
+
+    # === pgAdmin 4 共通暗号化・CSRF・セッションキー同期 ===
+    def _sync_keys():
+        import os, sqlite3
+        db_path = '/var/lib/pgadmin/pgadmin4.db'
+        if not os.path.exists(db_path):
+            return
+        try:
+            conn = sqlite3.connect(db_path)
+            cur = conn.cursor()
+            cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='keys'")
+            if cur.fetchone():
+                cur.execute("INSERT OR REPLACE INTO keys (name, value) VALUES ('SECRET_KEY', ?)", (SECRET_KEY,))
+                cur.execute("INSERT OR REPLACE INTO keys (name, value) VALUES ('CSRF_SESSION_KEY', ?)", (CSRF_SESSION_KEY,))
+                cur.execute("INSERT OR REPLACE INTO keys (name, value) VALUES ('SECURITY_PASSWORD_SALT', ?)", (SECURITY_PASSWORD_SALT,))
+                conn.commit()
+            conn.close()
+        except Exception:
+            pass
+
+    try:
+        _sync_keys()
+    except Exception:
+        pass
+
+    try:
+        _apply_japanese_patches()
+    except Exception:
+        pass
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgadmin
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+  labels:
+    app.kubernetes.io/name: pgadmin
+    app.kubernetes.io/part-of: keycloak-postgresql
+spec:
+  replicas: {{ pgadmin_replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgadmin
+  template:
+    metadata:
+      annotations:
+        checksum/config: "{{ (pgadmin_admin_email ~ pgadmin_admin_password ~ (pgadmin_client_secret | default('pgadmin-secret')) ~ (keycloak_pg_password | default('keycloak-pg-2026')) ~ 'v5-req-sync') | hash('sha256') }}"
+      labels:
+        app.kubernetes.io/name: pgadmin
+        app.kubernetes.io/part-of: keycloak-postgresql
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      affinity:
+        # 親 (Keycloak / Keycloak PostgreSQL) と同じノードへ集約 + 多重化 Pod 分散
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - keycloak
+                topologyKey: kubernetes.io/hostname
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - postgresql-ha
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - pgadmin
+                topologyKey: kubernetes.io/hostname
+      containers:
+      - name: pgadmin
+        image: {{ pgadmin_image }}
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: http
+          containerPort: 80
+        securityContext:
+          runAsUser: 0
+        env:
+        - name: PGADMIN_DEFAULT_EMAIL
+          value: "{{ pgadmin_admin_email }}"
+        - name: PGADMIN_DEFAULT_PASSWORD
+          value: "{{ pgadmin_admin_password }}"
+        - name: PGADMIN_SERVER_JSON_FILE
+          value: "/etc/pgadmin/servers.json"
+        - name: PGADMIN_PREFERENCES_JSON_FILE
+          value: "/etc/pgadmin/preferences.json"
+        - name: PGADMIN_REPLACE_SERVERS_ON_STARTUP
+          value: "True"
+        - name: PGPASS_FILE
+          value: "/etc/pgadmin/pgpass"
+        - name: PGADMIN_CONFIG_SERVER_MODE
+          value: "True"
+        - name: PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED
+          value: "False"
+        - name: PGADMIN_CONFIG_PROXY_X_FOR_COUNT
+          value: "1"
+        - name: PGADMIN_CONFIG_PROXY_X_PROTO_COUNT
+          value: "1"
+        - name: PGADMIN_CONFIG_PROXY_X_HOST_COUNT
+          value: "1"
+        - name: PGADMIN_CONFIG_PROXY_X_PORT_COUNT
+          value: "1"
+        - name: PGADMIN_CONFIG_PROXY_X_PREFIX_COUNT
+          value: "1"
+        - name: PGADMIN_CONFIG_SESSION_COOKIE_SECURE
+          value: "True"
+        - name: PGADMIN_CONFIG_SESSION_COOKIE_SAMESITE
+          value: "'Lax'"
+        - name: PGADMIN_CONFIG_WTF_CSRF_TIME_LIMIT
+          value: "None"
+        - name: PGADMIN_CONFIG_MAX_SESSION_IDLE_TIME
+          value: "1440"
+        volumeMounts:
+        - name: servers-config
+          mountPath: /etc/pgadmin
+          readOnly: true
+        - name: pgadmin-data
+          mountPath: /var/lib/pgadmin
+        - name: pgadmin-log
+          mountPath: /var/log/pgadmin4
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        readinessProbe:
+          httpGet:
+            path: /misc/ping
+            port: 80
+          initialDelaySeconds: 20
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /misc/ping
+            port: 80
+          initialDelaySeconds: 30
+          periodSeconds: 20
+      volumes:
+      - name: servers-config
+        configMap:
+          name: pgadmin-servers
+      - name: pgadmin-data
+        emptyDir: {}
+      - name: pgadmin-log
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgadmin
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+  labels:
+    app.kubernetes.io/name: pgadmin
+spec:
+  type: ClusterIP
+  ports:
+  - name: http
+    port: 80
+    targetPort: 80
+  selector:
+    app.kubernetes.io/name: pgadmin
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pgadmin
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ pgadmin_hostname }}`)
+      kind: Rule
+      services:
+        - name: pgadmin
+          port: 80
+          sticky:
+            cookie:
+              name: pgadmin_session
+              secure: true
+              httpOnly: true
+              sameSite: lax
+  tls:
+    domains:
+      - main: {{ pgadmin_hostname }}
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pgadmin-http
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`{{ pgadmin_hostname }}`)
+      kind: Rule
+      middlewares:
+        - name: redirect-https
+          namespace: {{ kube_system_namespace | default('kube-system') }}
+      services:
+        - name: pgadmin
+          port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pgadmin-ingress-allow
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pgadmin
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Traefik (kube-system) および Prometheus (cattle-monitoring-system) からの HTTP トラフィックを許可
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ kube_system_namespace | default('kube-system') }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ monitoring_namespace | default('cattle-monitoring-system') }}
+      ports:
+        - protocol: TCP
+          port: {{ http_port | default(80) }}
+  egress:
+    # Keycloak PostgreSQL ({{ postgres_port | default(5432) }}) への Egress
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgresql-ha
+      ports:
+        - protocol: TCP
+          port: {{ postgres_port | default(5432) }}
+    # Keycloak Web ({{ keycloak_http_port | default(8080) }}) への Egress (OAuth2 / OIDC 通信)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: keycloak
+      ports:
+        - protocol: TCP
+          port: {{ keycloak_http_port | default(8080) }}
+    # CoreDNS への名前解決
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ kube_system_namespace | default('kube-system') }}
+      ports:
+        - protocol: UDP
+          port: {{ dns_port | default(53) }}
+        - protocol: TCP
+          port: {{ dns_port | default(53) }}

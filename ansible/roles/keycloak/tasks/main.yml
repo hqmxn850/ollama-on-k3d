@@ -1,0 +1,154 @@
+---
+- name: keycloak 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ keycloak_namespace }}"
+  register: create_ns
+  changed_when: "'created' in create_ns.stdout"
+  failed_when: false
+
+- name: Helm リポジトリを追加 (helmforge, bitnami)
+  ansible.builtin.import_tasks: ../../../shared/tasks/helm_repo.yml
+  vars:
+    helm_repos:
+      - name: helmforge
+        url: "{{ helm_repo_helmforge }}"
+      - name: bitnami
+        url: "{{ helm_repo_bitnami }}"
+
+- name: Keycloak PostgreSQL HA をデプロイ / 更新 (repmgr streaming replication + Pgpool-II)
+  ansible.builtin.command: "helm upgrade --install keycloak-pg bitnami/postgresql-ha --namespace {{ keycloak_namespace }} --version {{ keycloak_pg_chart_version }} -f -"
+  args:
+    stdin: "{{ lookup('template', 'values-pg.yaml.j2') }}"
+  register: deploy_pg
+  changed_when: "'Release \"keycloak-pg\" has been upgraded' in deploy_pg.stdout or 'Release \"keycloak-pg\" does not exist' in deploy_pg.stdout"
+
+- name: Keycloak PostgreSQL (PostgreSQL StatefulSet) のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status statefulset/keycloak-pg-postgresql-ha-postgresql -n {{ keycloak_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+
+- name: Keycloak PostgreSQL (Pgpool-II Deployment) のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/keycloak-pg-postgresql-ha-pgpool -n {{ keycloak_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+
+- name: Keycloak PostgreSQL クラスタに system_stats 拡張を配置・有効化
+  ansible.builtin.command: "{{ role_path }}/files/install-system-stats.sh {{ cluster_name }} {{ role_path }}/files/extensions/system_stats"
+  environment:
+    PGPASSWORD: "{{ keycloak_pg_password | default('keycloak-pg-2026') }}"
+    PG_PRIMARY_POD: "{{ keycloak_pg_primary_pod }}"
+  register: install_sys_stats
+  changed_when: "'CREATE EXTENSION' in install_sys_stats.stdout"
+  ignore_errors: true
+
+- name: Keycloak PostgreSQL 専用 Service 群 (Primary, Read-0, Read-1) を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'postgresql-services.yaml.j2') }}"
+  register: apply_pg_services
+  changed_when: "'created' in apply_pg_services.stdout or 'configured' in apply_pg_services.stdout"
+
+- name: Grafana 用 PostgreSQL ユーザーおよびデータベースを作成
+  ansible.builtin.shell: |
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'grafana') THEN
+        CREATE ROLE grafana WITH LOGIN ENCRYPTED PASSWORD '{{ grafana_db_password | default('grafana-db-2026') }}';
+      ELSE
+        ALTER ROLE grafana WITH ENCRYPTED PASSWORD '{{ grafana_db_password | default('grafana-db-2026') }}';
+      END IF;
+    END
+    \$\$;
+    "
+    if ! kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'grafana'" | grep -q 1; then
+      kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "CREATE DATABASE grafana OWNER grafana;"
+    fi
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE grafana TO grafana;"
+  register: create_grafana_db
+  changed_when: "'CREATE DATABASE' in create_grafana_db.stdout"
+  failed_when: false
+
+- name: Harbor 用 PostgreSQL ユーザーおよびデータベースを作成 (HA keycloak-pg 共有)
+  ansible.builtin.shell: |
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'harbor') THEN
+        CREATE ROLE harbor WITH LOGIN ENCRYPTED PASSWORD '{{ harbor_db_password | default('harbor-db-2026') }}';
+      ELSE
+        ALTER ROLE harbor WITH ENCRYPTED PASSWORD '{{ harbor_db_password | default('harbor-db-2026') }}';
+      END IF;
+    END
+    \$\$;
+    "
+    if ! kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'harbor'" | grep -q 1; then
+      kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "CREATE DATABASE harbor OWNER harbor;"
+    fi
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE harbor TO harbor;"
+  register: create_harbor_db
+  changed_when: "'CREATE DATABASE' in create_harbor_db.stdout"
+  failed_when: false
+
+- name: 全データベースで監視・パフォーマンス拡張機能を有効化 (pg_stat_statements, pg_buffercache, pgstattuple, pg_prewarm, pg_walinspect)
+  ansible.builtin.shell: |
+    for db in postgres template1 keycloak grafana harbor; do
+      kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
+        CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
+        CREATE EXTENSION IF NOT EXISTS pg_buffercache;
+        CREATE EXTENSION IF NOT EXISTS pgstattuple;
+        CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+        CREATE EXTENSION IF NOT EXISTS pg_walinspect;
+      " || true
+    done
+  changed_when: false
+  failed_when: false
+
+- name: pgAdmin / 監視用ロール (pg_monitor, pg_read_server_files, monitor_system_stats) およびシステム関数 (pg_stat_file, system_stats 等) 実行権限を付与
+  ansible.builtin.shell: |
+    # 1. クラスター共通ロールの付与
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
+      GRANT pg_read_server_files, pg_monitor, monitor_system_stats TO grafana, harbor, keycloak;
+    " || true
+
+    # 2. 全データベースおよび template1 で system_stats 有効化 & pg_stat_file / pg_current_logfile の実行権限を付与 (pgAdmin 監視エラー防止)
+    for db in postgres template1 keycloak grafana harbor; do
+      kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
+        CREATE EXTENSION IF NOT EXISTS system_stats;
+        CREATE EXTENSION IF NOT EXISTS pg_buffercache;
+        CREATE EXTENSION IF NOT EXISTS pgstattuple;
+        CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+        CREATE EXTENSION IF NOT EXISTS pg_walinspect;
+        GRANT EXECUTE ON FUNCTION pg_stat_file(text) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_stat_file(text, boolean) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_current_logfile() TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_current_logfile(text) TO pg_read_server_files, pg_monitor;
+      " || true
+    done
+  changed_when: false
+  failed_when: false
+
+
+- name: Keycloak をデプロイ / 更新 (HA 3 レプリカ)
+  ansible.builtin.command: "helm upgrade --install keycloak helmforge/keycloak --namespace {{ keycloak_namespace }} --version {{ keycloak_chart_version }} -f - --wait --timeout {{ extended_rollout_timeout }}"
+  args:
+    stdin: "{{ lookup('template', 'values.yaml.j2') }}"
+  register: deploy_keycloak
+  changed_when: "'Release \"keycloak\" has been upgraded' in deploy_keycloak.stdout or 'Release \"keycloak\" does not exist' in deploy_keycloak.stdout"
+
+- name: Keycloak デプロイのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/keycloak-keycloak -n {{ keycloak_namespace }} --timeout={{ default_rollout_timeout }}"
+  changed_when: false
+
+- name: Keycloak PostgreSQL プライベート保護 NetworkPolicy を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'postgresql-networkpolicy.yaml.j2') }}"
+  when: enable_network_policy | default(true)
+  register: apply_pg_netpol
+  changed_when: "'created' in apply_pg_netpol.stdout or 'configured' in apply_pg_netpol.stdout"
+
+- name: pgAdmin 4 をデプロイ (Keycloak PostgreSQL Web 管理 UI)
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'pgadmin.yaml.j2') }}"
+  register: apply_pgadmin
+  changed_when: "'created' in apply_pgadmin.stdout or 'configured' in apply_pgadmin.stdout"
+

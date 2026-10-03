@@ -1,0 +1,102 @@
+---
+# Traefik Dashboard - Keycloak OIDC SSO (oauth2-proxy forwardAuth)
+# BasicAuth は廃止し、Keycloak SSO に統一
+
+# forwardAuth Middleware → oauth2-proxy (未認証時は oauth2-proxy が自動で 302 Redirect to Keycloak)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-sso-auth
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  forwardAuth:
+    address: http://oauth2-proxy.{{ kube_system_namespace }}.svc.cluster.local:{{ oauth2_proxy_port | default(4180) }}/
+    trustForwardHeader: true
+    authResponseHeaders:
+      - X-Auth-Request-User
+      - X-Auth-Request-Email
+
+---
+# Root → /dashboard/ リダイレクト Middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-dashboard-redirect
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  redirectRegex:
+    regex: "^https?://[^/]+/?$"
+    replacement: "/dashboard/"
+
+---
+# HTTPS IngressRoute (SSO 保護)
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    # oauth2-proxy の start / callback / sign_out (認証バイパス)
+    - match: Host(`{{ traefik_hostname }}`) && PathPrefix(`/oauth2`)
+      kind: Rule
+      priority: 20
+      services:
+        - name: oauth2-proxy
+          port: {{ oauth2_proxy_port | default(4180) }}
+    # Dashboard / API (SSO 保護: forwardAuth → 未認証時 302 to Keycloak)
+    - match: Host(`{{ traefik_hostname }}`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      priority: 10
+      middlewares:
+        - name: traefik-sso-auth
+      services:
+        - name: api@internal
+          kind: TraefikService
+    # ルートパス → /dashboard/ へリダイレクト (SSO 保護付き)
+    - match: Host(`{{ traefik_hostname }}`) && PathPrefix(`/`)
+      kind: Rule
+      priority: 5
+      middlewares:
+        - name: traefik-dashboard-redirect
+        - name: traefik-sso-auth
+      services:
+        - name: api@internal
+          kind: TraefikService
+  tls:
+    domains:
+      - main: {{ traefik_hostname }}
+
+---
+# HTTP → HTTPS リダイレクト IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard-http
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`{{ traefik_hostname }}`)
+      kind: Rule
+      middlewares:
+        - name: redirect-https
+          namespace: {{ kube_system_namespace }}
+      services:
+        - name: api@internal
+          kind: TraefikService

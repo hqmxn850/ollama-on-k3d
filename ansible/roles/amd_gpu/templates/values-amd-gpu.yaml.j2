@@ -1,0 +1,21 @@
+# ==============================================================================
+# AMD GPU Device Plugin (ROCm k8s-device-plugin) Helm values
+# リテラルは ansible/group_vars/all.yml (Single Source of Truth) を参照
+# ==============================================================================
+
+# Node Feature Discovery 連携 (本クラスタでは NFD 未導入のため無効)
+nfd:
+  enabled: {{ amd_gpu_nfd_enabled | default(false) | bool | lower }}
+
+# GPU ノードラベル付与 (NFD ラベル前提のため無効)
+labeller:
+  enabled: {{ amd_gpu_labeller_enabled | default(false) | bool | lower }}
+
+dp:
+  image:
+    repository: {{ amd_gpu_device_plugin_repository | default('docker.io/rocm/k8s-device-plugin', true) }}
+    tag: {{ amd_gpu_device_plugin_tag | default('1.31.0.9', true) | quote }}
+
+# PCI ベンダーフィルタによる GPU ノード限定配置
+# 本環境は全ノードが同一 GPU ホスト上のコンテナのため全ノード常駐 (無効)
+node_selector_enabled: {{ amd_gpu_node_selector_enabled | default(false) | bool | lower }}

@@ -1,0 +1,136 @@
+---
+# ==========================================================
+# kube-prometheus-stack デプロイ先行投入 (Launch)
+# ==========================================================
+
+- name: cattle-monitoring-system 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ monitoring_namespace | default('cattle-monitoring-system') }}"
+  register: create_mon_ns
+  changed_when: "'created' in create_mon_ns.stdout"
+  failed_when: false
+
+- name: Rancher メトリクス収集用 API トークン Secret を作成・同期
+  ansible.builtin.shell: |
+    set -e
+    TOKEN=$(kubectl get tokens.management.cattle.io -o jsonpath='{.items[0].metadata.name}:{.items[0].token}' 2>/dev/null || true)
+    if [ -n "$TOKEN" ]; then
+      kubectl create secret generic rancher-monitoring-token \
+        -n {{ monitoring_namespace | default('cattle-monitoring-system') }} \
+        --from-literal=token="$TOKEN" \
+        --dry-run=client -o yaml | kubectl apply -f -
+    fi
+  changed_when: false
+  failed_when: false
+
+
+- name: Helm リポジトリを追加 (prometheus-community, rancher-charts)
+  ansible.builtin.import_tasks: ../../../shared/tasks/helm_repo.yml
+  vars:
+    helm_repos:
+      - name: prometheus-community
+        url: "{{ helm_repo_prometheus_community }}"
+      - name: rancher-charts
+        url: "{{ helm_repo_rancher_charts }}"
+
+- name: Grafana 用 PostgreSQL データベースおよびユーザーの存在確認・作成
+  ansible.builtin.shell: |
+    kubectl exec -n {{ keycloak_namespace }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'grafana') THEN
+        CREATE ROLE grafana WITH LOGIN ENCRYPTED PASSWORD '{{ grafana_db_password | default('grafana-db-2026') }}';
+      ELSE
+        ALTER ROLE grafana WITH ENCRYPTED PASSWORD '{{ grafana_db_password | default('grafana-db-2026') }}';
+      END IF;
+    END
+    \$\$;
+    "
+    if ! kubectl exec -n {{ keycloak_namespace }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'grafana'" | grep -q 1; then
+      kubectl exec -n {{ keycloak_namespace }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "CREATE DATABASE grafana OWNER grafana;"
+    fi
+    kubectl exec -n {{ keycloak_namespace }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE grafana TO grafana; GRANT pg_read_server_files, pg_monitor, monitor_system_stats TO grafana;"
+    kubectl exec -n {{ keycloak_namespace }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d grafana -c "
+      CREATE EXTENSION IF NOT EXISTS system_stats;
+      CREATE EXTENSION IF NOT EXISTS pg_buffercache;
+      CREATE EXTENSION IF NOT EXISTS pgstattuple;
+      CREATE EXTENSION IF NOT EXISTS pg_prewarm;
+      CREATE EXTENSION IF NOT EXISTS pg_walinspect;
+      GRANT EXECUTE ON FUNCTION pg_stat_file(text) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_stat_file(text, boolean) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_current_logfile() TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_current_logfile(text) TO pg_read_server_files, pg_monitor;
+    " || true
+  register: ensure_grafana_db
+  changed_when: "'CREATE DATABASE' in ensure_grafana_db.stdout"
+  failed_when: false
+
+- name: 過去の失敗で残存した Prometheus WebhookConfigurations を安全にクリーンアップ (デッドロック防止)
+  ansible.builtin.command: >
+    kubectl delete mutatingwebhookconfiguration,validatingwebhookconfiguration kube-prometheus-stack-admission --ignore-not-found
+  changed_when: false
+  failed_when: false
+
+- name: kube-prometheus-stack をインストール / アップグレード
+  ansible.builtin.command: "helm upgrade --install kube-prometheus-stack prometheus-community/kube-prometheus-stack --namespace {{ monitoring_namespace }} --version {{ kube_prometheus_stack_chart_version }} --timeout {{ helm_timeout }} --force-conflicts -f -"
+  args:
+    stdin: "{{ lookup('template', 'values-monitoring.yaml.j2') }}"
+
+# enableOTLPReceiver は values-monitoring.yaml.j2 で宣言的設定済みのため、
+# ここでの imperative patch は行わない (values が単一の正)。
+
+- name: PostgreSQL データソース ConfigMap を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'grafana-datasource-postgresql.yaml.j2') }}"
+  register: apply_pg_ds
+  changed_when: "'configured' in apply_pg_ds.stdout or 'created' in apply_pg_ds.stdout"
+
+- name: PostgreSQL ダッシュボード ConfigMap を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'grafana-dashboard-postgresql.yaml.j2') }}"
+  register: apply_pg_dashboard
+  changed_when: "'configured' in apply_pg_dashboard.stdout or 'created' in apply_pg_dashboard.stdout"
+
+- name: Network Monitoring ダッシュボード ConfigMap を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'grafana-dashboard-network.yaml.j2') }}"
+  register: apply_network_dashboard
+  changed_when: "'configured' in apply_network_dashboard.stdout or 'created' in apply_network_dashboard.stdout"
+
+- name: 追加 K8S / Traefik / AI ダッシュボード ConfigMap 群を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', item) }}"
+  loop:
+    - grafana-dashboard-k8s-dashboard.yaml.j2
+    - grafana-dashboard-k8s-persistent-volumes.yaml.j2
+    - grafana-dashboard-k8s-storage-volumes-cluster.yaml.j2
+    - grafana-dashboard-k8s-views-k3s-cluster.yaml.j2
+    - grafana-dashboard-traefik.yaml.j2
+    - grafana-dashboard-ai.yaml.j2
+  register: apply_extra_dashboards
+  changed_when: "'configured' in apply_extra_dashboards.stdout or 'created' in apply_extra_dashboards.stdout"
+
+- name: Traefik メトリクス用 ClusterIP サービスを作成 (hostPort 9100 競合回避)
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'traefik-metrics-svc.yaml.j2') }}"
+  failed_when: false
+
+- name: Traefik LoadBalancer サービスから metrics ポートを削除 (Node Exporter 競合防止)
+  ansible.builtin.command: >
+    kubectl patch svc traefik -n {{ kube_system_namespace }} --type=merge
+    -p '{"spec":{"ports":[{"name":"web","port":{{ http_port }},"targetPort":{{ traefik_container_http_port }}},{"name":"websecure","port":{{ https_port }},"targetPort":{{ traefik_container_https_port }}}]}}'
+  failed_when: false
+  changed_when: false
+
+- name: K3s コントロールプレーン (etcd, proxy, scheduler, controller-manager) メトリクスプロキシ & RBAC を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'k8s-controlplane-metrics-proxy.yaml.j2') }}"
+  register: apply_controlplane_proxy
+  changed_when: "'configured' in apply_controlplane_proxy.stdout or 'created' in apply_controlplane_proxy.stdout"
+  failed_when: false
+

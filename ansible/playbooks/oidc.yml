@@ -1,0 +1,9 @@
+---
+- name: "[Phase 4] Keycloak OIDC 統合設定 & 認証情報出力 (oidc_integration)"
+  hosts: local
+  gather_facts: true
+  roles:
+    - role: oidc_integration
+      tags:
+        - oidc
+        - oidc_integration

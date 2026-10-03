@@ -1,0 +1,61 @@
+---
+# ==============================================================================
+# Open WebUI (Local AI Web チャット基盤) ロール
+#
+# 公式 Helm チャート (open-webui/open-webui) を用いてデプロイし、
+# Ollama / OGA バックエンドおよび Keycloak OIDC 認証と連携した Web UI を提供する。
+# ==============================================================================
+
+- name: Open WebUI 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ open_webui_namespace }}"
+  register: create_open_webui_ns
+  changed_when: "'created' in create_open_webui_ns.stdout"
+  failed_when: false
+
+- name: Open WebUI NetworkPolicy を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'open-webui-networkpolicy.yaml.j2') }}"
+  register: apply_open_webui_netpol
+  changed_when: "'created' in apply_open_webui_netpol.stdout or 'configured' in apply_open_webui_netpol.stdout"
+  when: enable_network_policy | default(true) | bool
+
+- name: Open WebUI Helm リポジトリを登録 (冪等)
+  ansible.builtin.import_tasks: ../../../shared/tasks/helm_repo.yml
+  vars:
+    helm_repos:
+      - name: open-webui
+        url: "{{ helm_repo_open_webui }}"
+
+- name: Open WebUI を Helm でデプロイ
+  ansible.builtin.command: >
+    helm upgrade --install open-webui open-webui/open-webui
+    --namespace {{ open_webui_namespace }}
+    --version {{ open_webui_chart_version }}
+    --force-conflicts
+    -f -
+  args:
+    stdin: "{{ lookup('template', 'values-open-webui.yaml.j2') }}"
+  register: install_open_webui
+  changed_when: '''Release "open-webui" does not exist'' in install_open_webui.stdout or ''has been upgraded'' in install_open_webui.stdout'
+
+- name: Open WebUI StatefulSet のロールアウト完了を待機
+  ansible.builtin.command: >-
+    kubectl rollout status statefulset/open-webui
+    -n {{ open_webui_namespace }}
+    --timeout={{ open_webui_rollout_timeout | default('300s') }}
+  register: open_webui_rollout
+  until: open_webui_rollout.rc == 0
+  retries: "{{ quick_retry_count | default(10) }}"
+  delay: "{{ quick_retry_delay | default(5) }}"
+  changed_when: false
+
+- name: Open WebUI Pod のステータスを確認
+  ansible.builtin.command: >-
+    kubectl get pods -n {{ open_webui_namespace }} -o wide
+  register: open_webui_pods_status
+  changed_when: false
+
+- name: Open WebUI Pod ステータスを表示
+  ansible.builtin.debug:
+    msg: "{{ open_webui_pods_status.stdout_lines | default([]) }}"

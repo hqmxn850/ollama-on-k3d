@@ -1,0 +1,65 @@
+mode: production
+hostname:
+  # スキーム付き URL を指定することで discovery ドキュメントの issuer が
+  # https://<hostname>/realms/master になり、Ceph 側の
+  # MINIO_IDENTITY_OPENID_ISSUER と一致する (不一致だと OIDC ボタンが消える)
+  hostname: https://{{ keycloak_hostname }}
+  # backchannel を動的解決にする。フロントチャネル (issuer / authorization_endpoint)
+  # は外部 HTTPS のまま、token / jwks / userinfo はリクエスト元の
+  # in-cluster HTTP (svc URL) が返る。これがないとサーバ間の token 交換が
+  # Traefik のデフォルト自己署名証明書に当たり TLS 検証失敗でタイムアウトする
+  backchannelDynamic: true
+admin:
+  username: {{ keycloak_admin_user }}
+  password: {{ keycloak_admin_password }}
+replicaCount: {{ keycloak_replicas }}
+nodeSelector:
+  node-role.kubernetes.io/control-plane: "true"
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - keycloak
+        topologyKey: kubernetes.io/hostname
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "{{ keycloak_mgmt_port | default(9000) }}"
+  prometheus.io/path: "/metrics"
+postgresql:
+  enabled: false
+database:
+  external:
+    vendor: postgres
+    host: {{ keycloak_pg_internal_host }}
+    port: {{ postgres_port | default(5432) }}
+    name: keycloak
+    username: keycloak
+    password: {{ keycloak_db_password }}
+metrics:
+  enabled: true
+  service:
+    enabled: true
+    port: {{ keycloak_mgmt_port | default(9000) }}
+    path: /metrics
+    scheme: HTTP
+service:
+  type: ClusterIP
+ingress:
+  public:
+    enabled: true
+    ingressClassName: traefik
+    hosts:
+    - host: {{ keycloak_hostname }}
+      paths:
+      - path: /
+        pathType: Prefix
+    tls:
+    - hosts:
+      - {{ keycloak_hostname }}
+      secretName: keycloak-tls

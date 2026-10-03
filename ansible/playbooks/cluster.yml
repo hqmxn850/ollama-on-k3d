@@ -1,0 +1,13 @@
+---
+- name: "[Phase 1] K3D クラスタ基盤プロビジョニング (host_setup / k3d_cluster)"
+  hosts: local
+  gather_facts: true
+  roles:
+    - role: host_setup
+      tags:
+        - cluster
+        - host_setup
+    - role: k3d_cluster
+      tags:
+        - k3d_cluster
+        - cluster

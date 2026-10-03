@@ -1,0 +1,86 @@
+---
+# ==========================================================
+# ① Management & Control Plane Protection NetworkPolicy (kube-system)
+# ==========================================================
+# 管理・制御プレーンの保護:
+# - CoreDNS への DNS クエリ (53/UDP,TCP) を全名前空間から許可
+# - Traefik Ingress の外部受付およびクラスタ内ルーティングを許可
+# - Metrics-Server へのメトリクス収集アクセスを許可
+# - 内部 etcd / Kubelet ポートを一般ワークロードから保護
+
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: coredns-access
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: kube-dns
+  policyTypes:
+    - Ingress
+  ingress:
+    # 全名前空間からの DNS クエリ (UDP/TCP {{ dns_port | default(53) }}) およびメトリクス収集を許可
+    - ports:
+        - protocol: UDP
+          port: {{ dns_port | default(53) }}
+        - protocol: TCP
+          port: {{ dns_port | default(53) }}
+        - protocol: TCP
+          port: {{ dns_metrics_port | default(9153) }}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: traefik-ingress-protection
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 外部・全ノードからの Ingress 受付ポート (Service ポート 80/443、コンテナポート 8000/8443、Admin/Ping/Metrics)
+    - ports:
+        - protocol: TCP
+          port: {{ http_port | default(80) }}
+        - protocol: TCP
+          port: {{ https_port | default(443) }}
+        - protocol: TCP
+          port: {{ traefik_container_http_port | default(8000) }}
+        - protocol: TCP
+          port: {{ traefik_container_https_port | default(8443) }}
+        - protocol: TCP
+          port: {{ traefik_admin_port | default(8080) }}
+        - protocol: TCP
+          port: {{ traefik_ping_port | default(9000) }}
+        - protocol: TCP
+          port: {{ traefik_metrics_port | default(9100) }}
+  egress:
+    # 全クラスタ内 Pod へのルーティングおよび DNS/API
+    - {}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: metrics-server-protection
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+spec:
+  podSelector:
+    matchLabels:
+      k8s-app: metrics-server
+  policyTypes:
+    - Ingress
+  ingress:
+    # API Server および Prometheus からのメトリクス取得
+    - ports:
+        - protocol: TCP
+          port: {{ https_port | default(443) }}
+        - protocol: TCP
+          port: {{ metrics_server_port | default(4443) }}
+        - protocol: TCP
+          port: {{ kubelet_port | default(10250) }}

@@ -1,0 +1,9 @@
+---
+- name: "[Teardown] K3D クラスタ停止・完全クリーンアップ (cluster_teardown)"
+  hosts: local
+  gather_facts: true
+  roles:
+    - role: cluster_teardown
+      tags:
+        - teardown
+        - cluster_teardown

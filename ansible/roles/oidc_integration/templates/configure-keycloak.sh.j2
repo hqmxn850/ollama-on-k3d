@@ -1,0 +1,404 @@
+#!/bin/sh
+set -e
+
+KC_URL="{{ keycloak_internal_url }}"
+ADMIN_USER="{{ keycloak_admin_user }}"
+ADMIN_PASS="{{ keycloak_admin_password }}"
+EMAIL_DOMAIN="{{ email_domain }}"
+ADMIN_GROUP="{{ admin_group_name }}"
+RANCHER_SECRET="{{ rancher_client_secret }}"
+RANCHER_HOST="{{ rancher_hostname }}"
+GRAFANA_SECRET="{{ grafana_client_secret }}"
+GRAFANA_HOST="{{ grafana_hostname }}"
+PGADMIN_SECRET="{{ pgadmin_client_secret | default('pgadmin-secret') }}"
+PGADMIN_HOST="{{ pgadmin_hostname }}"
+TRAEFIK_SECRET="{{ traefik_client_secret | default('traefik-secret') }}"
+TRAEFIK_HOST="{{ traefik_hostname }}"
+OPEN_WEBUI_SECRET="{{ open_webui_client_secret | default('open-webui-secret') }}"
+OPEN_WEBUI_HOST="{{ open_webui_hostname }}"
+OPEN_WEBUI_CLIENT_ID="{{ open_webui_client_id | default('open-webui') }}"
+
+echo "=================================================="
+echo "Starting Keycloak OIDC Configuration & Validation"
+echo "=================================================="
+
+# 1. Admin トークン取得
+echo "--> 1. Requesting Keycloak Admin API token..."
+TOKEN_RESP=$(curl -s -S -X POST "$KC_URL/realms/master/protocol/openid-connect/token" \
+  -d "grant_type=password&client_id=admin-cli&username=$ADMIN_USER&password=$ADMIN_PASS")
+
+TOKEN=$(echo "$TOKEN_RESP" | grep -o '"access_token":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+
+if [ -z "$TOKEN" ]; then
+  echo "CRITICAL ERROR: Failed to obtain Keycloak admin token!"
+  echo "Response: $TOKEN_RESP"
+  exit 1
+fi
+echo "Admin token obtained successfully."
+
+kc_get() {
+  curl -s -S -g -H "Authorization: Bearer $TOKEN" "$@"
+}
+
+kc_post_json() {
+  URL="$1"
+  shift
+  if [ "$1" = "-d" ]; then
+    curl -s -S -g -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$URL" "$@"
+  else
+    curl -s -S -g -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$URL" -d "$*"
+  fi
+}
+
+kc_put_json() {
+  URL="$1"
+  shift
+  if [ "$1" = "-d" ]; then
+    curl -s -S -g -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X PUT "$URL" "$@"
+  else
+    curl -s -S -g -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X PUT "$URL" -d "$*"
+  fi
+}
+
+kc_put() {
+  curl -s -S -g -H "Authorization: Bearer $TOKEN" -X PUT "$@"
+}
+
+# 1.1 Realm 国際化 (日本語化) 設定
+echo "--> 1.1 Configuring Realm Internationalization (Japanese)..."
+kc_put_json "$KC_URL/admin/realms/master" -d '{
+  "realm": "master",
+  "internationalizationEnabled": true,
+  "supportedLocales": ["ja", "en"],
+  "defaultLocale": "ja"
+}'
+echo "Realm internationalization configured: defaultLocale=ja, supportedLocales=[ja, en]."
+
+# 1.2 Realm イベント追跡 (Audit Events) 設定
+echo "--> 1.2 Configuring Realm Event Tracking (User & Admin Events)..."
+kc_put_json "$KC_URL/admin/realms/master/events/config" -d '{
+  "eventsEnabled": {{ keycloak_events_enabled | default(true) | bool | to_json }},
+  "eventsExpiration": {{ keycloak_events_expiration | default(2592000) | int }},
+  "eventsListeners": ["jboss-logging"],
+  "adminEventsEnabled": {{ keycloak_admin_events_enabled | default(true) | bool | to_json }},
+  "adminEventsDetailsEnabled": {{ keycloak_admin_events_details_enabled | default(true) | bool | to_json }}
+}'
+echo "Realm event tracking configured: eventsEnabled={{ keycloak_events_enabled | default(true) }}, adminEventsEnabled={{ keycloak_admin_events_enabled | default(true) }}, adminEventsDetailsEnabled={{ keycloak_admin_events_details_enabled | default(true) }}."
+
+# 2. クライアント作成 & ID 取得関数
+get_client_id() {
+  TARGET_CLIENT="$1"
+  kc_get "$KC_URL/admin/realms/master/clients?clientId=$TARGET_CLIENT" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true
+}
+
+echo "--> 2. Ensuring OIDC Clients exist..."
+
+# 2.1 Rancher クライアント
+RANCHER_CID=$(get_client_id "rancher")
+if [ -z "$RANCHER_CID" ]; then
+  echo "Creating client 'rancher'..."
+  kc_post_json "$KC_URL/admin/realms/master/clients" -d "{
+    \"clientId\": \"rancher\",
+    \"name\": \"Rancher\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$RANCHER_SECRET\",
+    \"directAccessGrantsEnabled\": true,
+    \"serviceAccountsEnabled\": true,
+    \"standardFlowEnabled\": true,
+    \"redirectUris\": [\"https://$RANCHER_HOST/*\"],
+    \"webOrigins\": [\"https://$RANCHER_HOST\"]
+  }"
+  RANCHER_CID=$(get_client_id "rancher")
+fi
+echo "Rancher client ID: $RANCHER_CID"
+if [ -z "$RANCHER_CID" ]; then
+  echo "CRITICAL ERROR: Failed to get Rancher client ID!"
+  exit 1
+fi
+
+# 2.2 Grafana クライアント
+GRAFANA_CID=$(get_client_id "grafana")
+if [ -z "$GRAFANA_CID" ]; then
+  echo "Creating client 'grafana'..."
+  kc_post_json "$KC_URL/admin/realms/master/clients" -d "{
+    \"clientId\": \"grafana\",
+    \"name\": \"Grafana\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$GRAFANA_SECRET\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": false,
+    \"redirectUris\": [\"https://$GRAFANA_HOST/login/generic_oauth\"],
+    \"webOrigins\": [\"*\"],
+    \"attributes\": {
+      \"post.logout.redirect.uris\": \"https://$GRAFANA_HOST/\"
+    }
+  }"
+  GRAFANA_CID=$(get_client_id "grafana")
+fi
+echo "Grafana client ID: $GRAFANA_CID"
+if [ -z "$GRAFANA_CID" ]; then
+  echo "CRITICAL ERROR: Failed to get Grafana client ID!"
+  exit 1
+fi
+
+# 2.4 pgAdmin 4 クライアント
+PGADMIN_CID=$(get_client_id "pgadmin")
+if [ -z "$PGADMIN_CID" ]; then
+  echo "Creating client 'pgadmin'..."
+  kc_post_json "$KC_URL/admin/realms/master/clients" -d "{
+    \"clientId\": \"pgadmin\",
+    \"name\": \"pgAdmin 4\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$PGADMIN_SECRET\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": true,
+    \"redirectUris\": [\"https://$PGADMIN_HOST/*\"],
+    \"webOrigins\": [\"https://$PGADMIN_HOST\"]
+  }"
+  PGADMIN_CID=$(get_client_id "pgadmin")
+fi
+echo "pgAdmin 4 client ID: $PGADMIN_CID"
+if [ -z "$PGADMIN_CID" ]; then
+  echo "CRITICAL ERROR: Failed to get pgAdmin 4 client ID!"
+  exit 1
+fi
+
+# 2.6 Traefik Dashboard SSO クライアント (oauth2-proxy forwardAuth)
+TRAEFIK_CID=$(get_client_id "traefik")
+if [ -z "$TRAEFIK_CID" ]; then
+  echo "Creating client 'traefik' (Dashboard SSO via oauth2-proxy)..."
+  kc_post_json "$KC_URL/admin/realms/master/clients" -d "{
+    \"clientId\": \"traefik\",
+    \"name\": \"Traefik Dashboard (oauth2-proxy)\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$TRAEFIK_SECRET\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": false,
+    \"redirectUris\": [\"https://$TRAEFIK_HOST/oauth2/callback\", \"https://$TRAEFIK_HOST/*\"],
+    \"webOrigins\": [\"https://$TRAEFIK_HOST\"]
+  }"
+  TRAEFIK_CID=$(get_client_id "traefik")
+else
+  # 既存クライアントの設定を確実に同期
+  kc_put_json "$KC_URL/admin/realms/master/clients/$TRAEFIK_CID" -d "{
+    \"clientId\": \"traefik\",
+    \"name\": \"Traefik Dashboard (oauth2-proxy)\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$TRAEFIK_SECRET\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": false,
+    \"redirectUris\": [\"https://$TRAEFIK_HOST/oauth2/callback\", \"https://$TRAEFIK_HOST/*\"],
+    \"webOrigins\": [\"https://$TRAEFIK_HOST\"]
+  }"
+fi
+echo "Traefik client ID: $TRAEFIK_CID"
+if [ -z "$TRAEFIK_CID" ]; then
+  echo "CRITICAL ERROR: Failed to get Traefik client ID!"
+  exit 1
+fi
+
+# 2.7 Open WebUI クライアント
+OPEN_WEBUI_CID=$(get_client_id "$OPEN_WEBUI_CLIENT_ID")
+if [ -z "$OPEN_WEBUI_CID" ]; then
+  echo "Creating client '$OPEN_WEBUI_CLIENT_ID'..."
+  kc_post_json "$KC_URL/admin/realms/master/clients" -d "{
+    \"clientId\": \"$OPEN_WEBUI_CLIENT_ID\",
+    \"name\": \"Open WebUI\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$OPEN_WEBUI_SECRET\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": false,
+    \"redirectUris\": [\"https://$OPEN_WEBUI_HOST/oauth/oidc/callback\", \"https://$OPEN_WEBUI_HOST/*\"],
+    \"webOrigins\": [\"https://$OPEN_WEBUI_HOST\"],
+    \"attributes\": {
+      \"post.logout.redirect.uris\": \"https://$OPEN_WEBUI_HOST/\"
+    }
+  }"
+  OPEN_WEBUI_CID=$(get_client_id "$OPEN_WEBUI_CLIENT_ID")
+else
+  # 既存クライアントの設定を確実に同期
+  kc_put_json "$KC_URL/admin/realms/master/clients/$OPEN_WEBUI_CID" -d "{
+    \"clientId\": \"$OPEN_WEBUI_CLIENT_ID\",
+    \"name\": \"Open WebUI\",
+    \"enabled\": true,
+    \"protocol\": \"openid-connect\",
+    \"publicClient\": false,
+    \"secret\": \"$OPEN_WEBUI_SECRET\",
+    \"standardFlowEnabled\": true,
+    \"directAccessGrantsEnabled\": false,
+    \"redirectUris\": [\"https://$OPEN_WEBUI_HOST/oauth/oidc/callback\", \"https://$OPEN_WEBUI_HOST/*\"],
+    \"webOrigins\": [\"https://$OPEN_WEBUI_HOST\"],
+    \"attributes\": {
+      \"post.logout.redirect.uris\": \"https://$OPEN_WEBUI_HOST/\"
+    }
+  }"
+fi
+echo "Open WebUI client ID: $OPEN_WEBUI_CID"
+if [ -z "$OPEN_WEBUI_CID" ]; then
+  echo "CRITICAL ERROR: Failed to get Open WebUI client ID!"
+  exit 1
+fi
+
+# 3. Protocol Mappers 登録関数
+ensure_mapper() {
+  CID="$1"
+  CNAME="$2"
+  MNAME="$3"
+  MMAPPER="$4"
+  MCONFIG="$5"
+
+  EXISTING=$(kc_get "$KC_URL/admin/realms/master/clients/$CID/protocol-mappers/models" | grep -o "\"name\":\"$MNAME\"" || true)
+  if [ -z "$EXISTING" ]; then
+    echo "Adding protocol mapper '$MNAME' to $CNAME ($CID)..."
+    kc_post_json "$KC_URL/admin/realms/master/clients/$CID/protocol-mappers/models" -d "{
+      \"name\": \"$MNAME\",
+      \"protocol\": \"openid-connect\",
+      \"protocolMapper\": \"$MMAPPER\",
+      \"config\": $MCONFIG
+    }"
+  else
+    echo "Protocol mapper '$MNAME' already exists on $CNAME."
+  fi
+}
+
+echo "--> 3. Registering Protocol Mappers (preferred_username, email, groups)..."
+
+CONF_USERNAME='{"user.attribute":"preferred_username","claim.name":"preferred_username","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}'
+CONF_EMAIL='{"user.attribute":"email","claim.name":"email","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true"}'
+CONF_GROUPS='{"full.path":"false","id.token.claim":"true","access.token.claim":"true","userinfo.token.claim":"true","claim.name":"groups"}'
+
+for client_info in "rancher:$RANCHER_CID" "grafana:$GRAFANA_CID" "pgadmin:$PGADMIN_CID" "traefik:$TRAEFIK_CID" "openwebui:$OPEN_WEBUI_CID"; do
+  cname=$(echo "$client_info" | cut -d: -f1)
+  cid=$(echo "$client_info" | cut -d: -f2)
+
+  ensure_mapper "$cid" "$cname" "preferred_username" "oidc-usermodel-attribute-mapper" "$CONF_USERNAME"
+  ensure_mapper "$cid" "$cname" "email" "oidc-usermodel-attribute-mapper" "$CONF_EMAIL"
+  ensure_mapper "$cid" "$cname" "groups" "oidc-group-membership-mapper" "$CONF_GROUPS"
+done
+
+# 4. 管理者グループ作成 & ID 取得
+echo "--> 4. Ensuring Admin Group '$ADMIN_GROUP' exists..."
+GROUPS_RESP=$(kc_get "$KC_URL/admin/realms/master/groups")
+ADMIN_GID=$(echo "$GROUPS_RESP" | grep -o "\"id\":\"[^\"]*\",\"name\":\"$ADMIN_GROUP\"" | head -1 | cut -d'"' -f4 || true)
+
+if [ -z "$ADMIN_GID" ]; then
+  # 検索 API でも試行
+  ADMIN_GID=$(kc_get "$KC_URL/admin/realms/master/groups?search=$ADMIN_GROUP" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+fi
+
+if [ -z "$ADMIN_GID" ]; then
+  echo "Group '$ADMIN_GROUP' not found, creating..."
+  kc_post_json "$KC_URL/admin/realms/master/groups" -d "{\"name\":\"$ADMIN_GROUP\"}"
+  
+  # 作成後の ID 再取得
+  GROUPS_RESP=$(kc_get "$KC_URL/admin/realms/master/groups")
+  ADMIN_GID=$(echo "$GROUPS_RESP" | grep -o "\"id\":\"[^\"]*\",\"name\":\"$ADMIN_GROUP\"" | head -1 | cut -d'"' -f4 || true)
+  if [ -z "$ADMIN_GID" ]; then
+    ADMIN_GID=$(kc_get "$KC_URL/admin/realms/master/groups?search=$ADMIN_GROUP" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+  fi
+fi
+
+echo "Admin Group ID: $ADMIN_GID"
+if [ -z "$ADMIN_GID" ]; then
+  echo "CRITICAL ERROR: Failed to get group ID for '$ADMIN_GROUP'!"
+  exit 1
+fi
+
+# 5. 管理者ユーザー ID 取得 & メールアドレス設定
+echo "--> 5. Ensuring Admin User '$ADMIN_USER' configuration..."
+ADMIN_UID=$(kc_get "$KC_URL/admin/realms/master/users?username=$ADMIN_USER" | grep -o '"id":"[^"]*"' | head -1 | cut -d'"' -f4 || true)
+echo "Admin User ID: $ADMIN_UID"
+if [ -z "$ADMIN_UID" ]; then
+  echo "CRITICAL ERROR: Failed to get user ID for '$ADMIN_USER'!"
+  exit 1
+fi
+
+echo "Setting email: $ADMIN_USER@$EMAIL_DOMAIN and locale: ja..."
+kc_put_json "$KC_URL/admin/realms/master/users/$ADMIN_UID" -d \
+  "{\"email\":\"$ADMIN_USER@$EMAIL_DOMAIN\",\"emailVerified\":true,\"attributes\":{\"locale\":[\"ja\"]}}"
+
+# 6. 管理者ユーザーをグループに追加
+echo "--> 6. Adding user '$ADMIN_USER' to group '$ADMIN_GROUP'..."
+kc_put "$KC_URL/admin/realms/master/users/$ADMIN_UID/groups/$ADMIN_GID"
+
+# 7. 検証ステップ
+echo "--> 7. Verifying configurations..."
+
+# 7.1 グループ所属検証
+USER_GROUPS=$(kc_get "$KC_URL/admin/realms/master/users/$ADMIN_UID/groups")
+echo "User '$ADMIN_USER' groups: $USER_GROUPS"
+if echo "$USER_GROUPS" | grep -q "\"name\":\"$ADMIN_GROUP\""; then
+  echo "[PASS] Verified: User '$ADMIN_USER' is a member of group '$ADMIN_GROUP'."
+else
+  echo "CRITICAL ERROR: User '$ADMIN_USER' is NOT in group '$ADMIN_GROUP'!"
+  exit 1
+fi
+
+# 7.2 Open WebUI Protocol Mapper 検証
+OPENWEBUI_MAPPERS=$(kc_get "$KC_URL/admin/realms/master/clients/$OPEN_WEBUI_CID/protocol-mappers/models")
+if echo "$OPENWEBUI_MAPPERS" | grep -q '"name":"groups"'; then
+  echo "[PASS] Verified: Open WebUI client has 'groups' protocol mapper."
+else
+  echo "CRITICAL ERROR: Open WebUI client is missing 'groups' protocol mapper!"
+  exit 1
+fi
+
+# 7.3 Rancher Protocol Mapper 検証
+RANCHER_MAPPERS=$(kc_get "$KC_URL/admin/realms/master/clients/$RANCHER_CID/protocol-mappers/models")
+if echo "$RANCHER_MAPPERS" | grep -q '"name":"groups"'; then
+  echo "[PASS] Verified: Rancher client has 'groups' protocol mapper."
+else
+  echo "CRITICAL ERROR: Rancher client is missing 'groups' protocol mapper!"
+  exit 1
+fi
+
+# 7.4 Grafana Protocol Mapper 検証
+GRAFANA_MAPPERS=$(kc_get "$KC_URL/admin/realms/master/clients/$GRAFANA_CID/protocol-mappers/models")
+if echo "$GRAFANA_MAPPERS" | grep -q '"name":"groups"'; then
+  echo "[PASS] Verified: Grafana client has 'groups' protocol mapper."
+else
+  echo "CRITICAL ERROR: Grafana client is missing 'groups' protocol mapper!"
+  exit 1
+fi
+
+# 7.5 pgAdmin 4 Protocol Mapper 検証
+PGADMIN_MAPPERS=$(kc_get "$KC_URL/admin/realms/master/clients/$PGADMIN_CID/protocol-mappers/models")
+if echo "$PGADMIN_MAPPERS" | grep -q '"name":"groups"'; then
+  echo "[PASS] Verified: pgAdmin 4 client has 'groups' protocol mapper."
+else
+  echo "CRITICAL ERROR: pgAdmin 4 client is missing 'groups' protocol mapper!"
+  exit 1
+fi
+
+# 7.6 Traefik (oauth2-proxy) Protocol Mapper 検証
+TRAEFIK_MAPPERS=$(kc_get "$KC_URL/admin/realms/master/clients/$TRAEFIK_CID/protocol-mappers/models")
+if echo "$TRAEFIK_MAPPERS" | grep -q '"name":"groups"'; then
+  echo "[PASS] Verified: Traefik client has 'groups' protocol mapper."
+else
+  echo "CRITICAL ERROR: Traefik client is missing 'groups' protocol mapper!"
+  exit 1
+fi
+
+# 7.7 Realm 国際化 (日本語化) 検証
+REALM_INFO=$(kc_get "$KC_URL/admin/realms/master")
+if echo "$REALM_INFO" | grep -q '"defaultLocale":"ja"'; then
+  echo "[PASS] Verified: Realm internationalization is enabled with default locale 'ja'."
+else
+  echo "WARNING: Realm default locale 'ja' check could not be confirmed."
+fi
+
+echo "=================================================="
+echo "Keycloak OIDC Configuration & Validation SUCCESS!"
+echo "=================================================="

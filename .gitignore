@@ -1,0 +1,8 @@
+secrets.txt
+.ansible/
+*.retry
+manifests/rancher-i18n/dist/
+__pycache__/
+*.pyc
+backups/
+images.txt

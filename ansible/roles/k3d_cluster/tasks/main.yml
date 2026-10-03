@@ -1,0 +1,436 @@
+---
+- name: auto-deploy ディレクトリを準備
+  ansible.builtin.file:
+    path: "{{ manifest_dir }}"
+    state: directory
+    mode: '0755'
+
+- name: containerd.d ディレクトリを準備
+  ansible.builtin.file:
+    path: "{{ project_root }}/manifests/containerd.d"
+    state: directory
+    mode: '0755'
+
+- name: containerd チューニング設定 (tuning.toml) を生成
+  ansible.builtin.template:
+    src: containerd-tuning.toml.j2
+    dest: "{{ project_root }}/manifests/containerd.d/tuning.toml"
+    mode: '0644'
+
+- name: Traefik HelmChartConfig マニフェストを auto-deploy に生成配置
+  ansible.builtin.template:
+    src: traefik-config.yaml.j2
+    dest: "{{ manifest_dir }}/traefik-config.yaml"
+    mode: '0644'
+  when: not (disable_traefik | default(false))
+
+- name: K3D config.yaml を生成
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: "{{ project_root }}/config.yaml"
+    mode: '0644'
+
+- name: 既存の K3D クラスタ一覧を取得
+  ansible.builtin.command: "k3d cluster list -o json"
+  register: k3d_list_raw
+  changed_when: false
+  become: true
+
+- name: クラスタ存在判定
+  ansible.builtin.set_fact:
+    cluster_exists: "{{ (k3d_list_raw.stdout | default('[]') | from_json | selectattr('name', 'equalto', cluster_name) | selectattr('serversCount', 'defined') | selectattr('serversCount', 'gt', 0) | list | length) > 0 }}"
+    cluster_broken_remnant: "{{ (k3d_list_raw.stdout | default('[]') | from_json | selectattr('name', 'equalto', cluster_name) | selectattr('serversCount', 'defined') | selectattr('serversCount', 'equalto', 0) | list | length) > 0 }}"
+
+- name: 破損した残存 K3D クラスタ (サーバー0台) を削除
+  ansible.builtin.command: "k3d cluster delete {{ cluster_name }}"
+  when: cluster_broken_remnant
+  become: true
+
+- name: K3D クラスタを作成
+  ansible.builtin.command: "k3d cluster create --config {{ project_root }}/config.yaml --wait"
+  when: not cluster_exists
+  become: true
+
+- name: K3D クラスタから最新の kubeconfig を取得
+  ansible.builtin.shell: "k3d kubeconfig get {{ cluster_name }} > {{ root_kubeconfig }}"
+  changed_when: false
+  become: true
+
+- name: ノードの Ready 状態を待機
+  ansible.builtin.command: "kubectl wait --for=condition=Ready nodes --all --timeout={{ node_ready_timeout }}"
+  changed_when: false
+  become: true
+
+- name: Server ノードと Worker ノードの CPU コア配分を適用 (Server 8コア / Worker 24コア)
+  ansible.builtin.shell: |
+    # Server ノードコンテナ更新 (8コア)
+    for c in $(podman ps --filter "name=k3d-{{ cluster_name }}-server" --format "{{ '{{' }}.Names{{ '}}' }}"); do
+      podman update --cpus {{ server_cpus | default(8) }} {% if server_cpuset | default('') | length > 0 %}--cpuset-cpus {{ server_cpuset }}{% endif %} "$c" || true
+    done
+    # Worker (Agent) ノードコンテナ更新 (24コア)
+    for c in $(podman ps --filter "name=k3d-{{ cluster_name }}-agent" --format "{{ '{{' }}.Names{{ '}}' }}"); do
+      podman update --cpus {{ agent_cpus | default(24) }} {% if agent_cpuset | default('') | length > 0 %}--cpuset-cpus {{ agent_cpuset }}{% endif %} "$c" || true
+    done
+  become: true
+  changed_when: false
+
+- name: Kubernetes ノードに機能別配置用ラベルを付与 (CORE/SSO/Monitoring -> Server, AI -> Worker)
+  ansible.builtin.shell: |
+    # Server ノード用ラベル確実化
+    for node in $(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+      kubectl label node "$node" tier=core role=control-plane --overwrite || true
+    done
+    # Worker ノード用ラベル確実化
+    for node in $(kubectl get nodes --no-headers 2>/dev/null | grep -v control-plane | awk '{print $1}'); do
+      kubectl label node "$node" node-role.kubernetes.io/worker=true tier=ai role=worker --overwrite || true
+    done
+  become: true
+  changed_when: false
+
+- name: "全 K3D ノード内に Kubelet Block PV 用 loop デバイスノード (0〜{{ kubelet_loop_device_max | default(64) }}) を作成・補完"
+  ansible.builtin.shell: |
+    for node in $(podman ps --filter "label=app=k3d" --format "{{ '{{' }}.Names{{ '}}' }}"); do
+      podman exec "$node" sh -c '
+        for i in $(seq 0 {{ kubelet_loop_device_max | default(64) }}); do
+          if [ ! -b /dev/loop$i ]; then
+            mknod /dev/loop$i b 7 $i 2>/dev/null || true
+          fi
+          chmod 666 /dev/loop$i 2>/dev/null || true
+        done
+      ' 2>/dev/null || true
+    done
+    # ホスト側: losetup に紐付かない未使用の余分な /dev/loop デバイスノードを安全に削除
+    for dev in /dev/loop[0-9]*; do
+      if [ -e "$dev" ] && ! losetup -a 2>/dev/null | grep -q "^${dev}:"; then
+        rm -f "$dev" 2>/dev/null || true
+      fi
+    done
+  become: true
+  changed_when: false
+
+- name: 全 K3D ノードのプロセス数制限 (pids.max / TasksMax) を無制限に設定 (EAGAIN クラッシュ防止)
+  ansible.builtin.shell: |
+    for cid in $(podman ps -a --filter "label=app=k3d" --format "{{ '{{' }}.ID{{ '}}' }}"); do
+      # 1. systemd scope の TasksMax を infinity に設定
+      for scope in $(systemctl list-units --type=scope --all | grep -oE "libpod-${cid}[^ ]*\.scope" || true); do
+        systemctl set-property "$scope" TasksMax=infinity 2>/dev/null || true
+      done
+      # 2. cgroup の pids.max に直接 max を書き込み
+      cgroup_paths=$(find /sys/fs/cgroup -name "*${cid}*" -type d 2>/dev/null || true)
+      for d in $cgroup_paths; do
+        if [ -f "$d/pids.max" ]; then
+          echo "max" > "$d/pids.max" 2>/dev/null || true
+        fi
+        if [ -f "$d/container/pids.max" ]; then
+          echo "max" > "$d/container/pids.max" 2>/dev/null || true
+        fi
+      done
+      # 3. podman update で HostConfig.PidsLimit を 0 に設定
+      podman update --pids-limit 0 "$cid" 2>/dev/null || true
+    done
+  become: true
+  changed_when: false
+
+- name: Agent ノードに内部用 kubeconfig を配置 (k3d uncordon ループの解消)
+  ansible.builtin.shell: |
+    for i in $(seq 0 {{ (agents | int) - 1 }}); do
+      podman exec "k3d-{{ cluster_name }}-server-0" cat /etc/rancher/k3s/k3s.yaml | \
+        sed "s|https://127.0.0.1:6443|https://k3d-{{ cluster_name }}-server-0:6443|" | \
+        podman exec -i "k3d-{{ cluster_name }}-agent-${i}" sh -c 'cat > /etc/rancher/k3s/k3s.yaml'
+      podman exec "k3d-{{ cluster_name }}-agent-${i}" kubectl uncordon "k3d-{{ cluster_name }}-agent-${i}" || true
+    done
+  when: (agents | int) > 0
+  changed_when: false
+  become: true
+
+- name: Agent ノードにラベルを付与 (node-role.kubernetes.io/agent=true, worker=true)
+  ansible.builtin.shell: |
+    for i in $(seq 0 {{ (agents | int) - 1 }}); do
+      kubectl label node "k3d-{{ cluster_name }}-agent-${i}" node-role.kubernetes.io/agent=true node-role.kubernetes.io/worker=true --overwrite || true
+    done
+  when: (agents | int) > 0
+  changed_when: false
+  become: true
+
+- name: 全 K3D ノードに containerd チューニング設定 (tuning.toml) を同期
+  ansible.builtin.shell: |
+    for node in $(podman ps --filter "label=app=k3d" --format "{{ '{{' }}.Names{{ '}}' }}"); do
+      podman exec "$node" mkdir -p /var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d 2>/dev/null || true
+      podman cp "{{ project_root }}/manifests/containerd.d/tuning.toml" "$node:/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d/tuning.toml" 2>/dev/null || true
+    done
+  become: true
+  changed_when: false
+
+# --- サーバーノード固定 IP 確保 (etcd ピア URL ずれ防止) ---
+- name: サーバーノードの固定 IP 確保 (10.89.0.3〜)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    NETWORK="{{ podman_network }}"
+    for i in $(seq 0 $(( {{ servers | int }} - 1 ))); do
+      NODE="k3d-{{ cluster_name }}-server-${i}"
+      WANT="10.89.0.$(( 3 + i ))"
+      CUR=$(podman inspect -f '{{ '{{' }}range .NetworkSettings.Networks}}{{ '{{' }}.IPAddress}}{{ '{{' }}end{{ '}}' }}' "$NODE" 2>/dev/null | awk 'NF{print; exit}' || true)
+      if [ "$CUR" = "$WANT" ]; then
+        echo "OK: $NODE = $CUR"
+        continue
+      fi
+      echo "FIX: $NODE = ${CUR:-none} -> $WANT"
+      podman stop -t 30 "$NODE" >/dev/null 2>&1 || true
+      podman network disconnect "$NETWORK" "$NODE" 2>/dev/null || true
+      podman network connect --ip "$WANT" "$NETWORK" "$NODE"
+      podman start "$NODE" >/dev/null
+      for _ in $(seq 1 {{ node_ready_wait_steps }}); do
+        if kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
+          break
+        fi
+        sleep {{ default_retry_delay }}
+      done
+    done
+    echo "servers fixed-ip done"
+  register: server_fixed_ip
+  changed_when: "'FIX:' in server_fixed_ip.stdout"
+  become: true
+
+# --- registries.yaml (mirror + rewrite) を既存ノードへ適用 ---
+- name: registries.yaml を一時ファイルにレンダリング
+  ansible.builtin.template:
+    src: registries.yaml.j2
+    dest: "/tmp/k3d-registries-{{ cluster_name }}.yaml"
+    mode: '0644'
+
+- name: registries.yaml のチェックサムを計算
+  ansible.builtin.set_fact:
+    registries_local_sha: "{{ lookup('file', '/tmp/k3d-registries-' ~ cluster_name ~ '.yaml') | hash('sha256') }}"
+
+- name: 各ノードの registries.yaml チェックサムを取得
+  ansible.builtin.shell: |
+    for node in $(podman ps --filter "label=app=k3d" --format "{{ '{{' }}.Names{{ '}}' }}"); do
+      SHA=$(podman exec "$node" sha256sum /etc/rancher/k3s/registries.yaml 2>/dev/null | awk '{print $1}' || echo "missing")
+      echo "$node=$SHA"
+    done
+  register: registries_node_shas
+  changed_when: false
+  become: true
+
+- name: 差分ノード名の一覧を取得 (agent → server 降順で安全ローリング)
+  ansible.builtin.set_fact:
+    registries_stale_nodes: >-
+      {%- set stale = [] -%}
+      {%- for line in registries_node_shas.stdout_lines -%}
+        {%- set parts = line.split('=', 1) -%}
+        {%- if parts | length == 2 and (parts[1] != registries_local_sha) -%}
+          {%- set _ = stale.append(parts[0]) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {%- set agents = stale | select('search', '-agent-') | list -%}
+      {%- set servers = stale | select('search', '-server-') | list -%}
+      {%- set servers_sorted = servers | sort(reverse=True) -%}
+      {{ agents + servers_sorted }}
+
+- name: 差分ノードへ registries.yaml をコピーし固定IP付きでローリング再起動
+  ansible.builtin.shell: |
+    set -euo pipefail
+    NETWORK="{{ podman_network }}"
+    TEMPLATE_SHA="{{ registries_local_sha }}"
+    SRC_FILE="/tmp/k3d-registries-{{ cluster_name }}.yaml"
+    for NODE in {{ registries_stale_nodes | default([]) | join(' ') }}; do
+      [ -z "$NODE" ] && continue
+      echo "=== applying registries.yaml to $NODE ==="
+      podman cp "$SRC_FILE" "$NODE:/etc/rancher/k3s/registries.yaml"
+      CUR=$(podman inspect -f '{{ '{{' }}range .NetworkSettings.Networks}}{{ '{{' }}.IPAddress}}{{ '{{' }}end{{ '}}' }}' "$NODE" | awk 'NF{print; exit}')
+      case "$NODE" in
+        *-server-*)
+          IDX=${NODE##*-}
+          WANT="10.89.0.$(( 3 + IDX ))"
+          ;;
+        *)
+          WANT="$CUR"
+          ;;
+      esac
+      podman stop -t 30 "$NODE" >/dev/null 2>&1 || true
+      podman network disconnect "$NETWORK" "$NODE" 2>/dev/null || true
+      podman network connect --ip "$WANT" "$NETWORK" "$NODE"
+      podman start "$NODE" >/dev/null
+      echo "restarted $NODE -> $WANT (sha=$TEMPLATE_SHA)"
+      for _ in $(seq 1 {{ node_ready_wait_steps }}); do
+        if kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
+          echo "$NODE Ready"
+          break
+        fi
+        sleep {{ default_retry_delay }}
+      done
+      sleep {{ short_poll_interval }}
+    done
+    echo "registries apply done"
+  register: registries_apply
+  changed_when: "'applying registries' in registries_apply.stdout"
+  when: registries_stale_nodes | default([]) | length > 0
+  become: true
+
+
+
+- name: ユーザー用 ~/.kube ディレクトリを作成
+  ansible.builtin.file:
+    path: "{{ user_home }}/.kube"
+    state: directory
+    owner: "{{ user_name }}"
+    mode: '0700'
+  become: true
+
+- name: kubeconfig をユーザー環境に配置
+  ansible.builtin.fetch:
+    src: "{{ root_kubeconfig }}"
+    dest: "{{ user_kubeconfig }}"
+    flat: true
+  become: true
+
+- name: kubeconfig の所有権とパーミッションを設定
+  ansible.builtin.file:
+    path: "{{ user_kubeconfig }}"
+    owner: "{{ user_name }}"
+    mode: '0600'
+  become: true
+
+- name: コンテナイメージを一括事前インポート (完全ローカルキャッシュ保証)
+  ansible.builtin.command: "{{ role_path }}/files/import-images.sh {{ cluster_name }} {{ images_file | default(project_root ~ '/images.txt') }}"
+  register: import_images_result
+  when: pre_import_images | default(true) | bool
+  become: true
+  environment:
+    LC_ALL: "C.UTF-8"
+    LANG: "C.UTF-8"
+  tags:
+    - pre_import_images
+    - images
+
+- name: Podman から各ノードへのイメージ・コピー処理の実行状況をコンソール表示
+  ansible.builtin.debug:
+    msg: "{{ import_images_result.stdout_lines | default(['事前インポートはスキップされました']) }}"
+  when:
+    - pre_import_images | default(true) | bool
+    - import_images_result is defined
+    - import_images_result.stdout_lines is defined
+  tags:
+    - pre_import_images
+    - images
+
+# HA 化設定
+- name: CoreDNS を 3 レプリカにスケール
+  ansible.builtin.command: "kubectl scale deployment coredns -n {{ kube_system_namespace }} --replicas={{ servers | default(3) }}"
+  register: scale_coredns
+  changed_when: "'scaled' in scale_coredns.stdout"
+  failed_when: false
+
+- name: CoreDNS をサーバーノードに制限
+  ansible.builtin.command: >
+    kubectl patch deployment coredns -n {{ kube_system_namespace }}
+    -p '{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/control-plane":"true"}}}}}'
+  register: patch_coredns_node
+  changed_when: "'patched' in patch_coredns_node.stdout"
+  failed_when: false
+
+- name: CoreDNS の PodAntiAffinity を設定
+  ansible.builtin.command: >
+    kubectl patch deployment coredns -n {{ kube_system_namespace }}
+    -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchExpressions":[{"key":"k8s-app","operator":"In","values":["kube-dns"]}]},"topologyKey":"kubernetes.io/hostname"}}]}}}}}}'
+  register: patch_coredns_affinity
+  changed_when: "'patched' in patch_coredns_affinity.stdout"
+  failed_when: false
+
+- name: 全ノード数を計算
+  ansible.builtin.set_fact:
+    total_nodes: "{{ (servers | int) + (agents | int) }}"
+
+- name: local-path-provisioner を全ノード数にスケール
+  ansible.builtin.command: "kubectl scale deployment local-path-provisioner -n {{ kube_system_namespace }} --replicas={{ total_nodes }}"
+  register: scale_localpath
+  changed_when: "'scaled' in scale_localpath.stdout"
+  failed_when: false
+
+- name: local-path-provisioner の PodAntiAffinity を設定
+  ansible.builtin.command: >
+    kubectl patch deployment local-path-provisioner -n {{ kube_system_namespace }}
+    -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchExpressions":[{"key":"app","operator":"In","values":["local-path-provisioner"]}]},"topologyKey":"kubernetes.io/hostname"}}]}}}}}}'
+  register: patch_localpath_affinity
+  changed_when: "'patched' in patch_localpath_affinity.stdout"
+  failed_when: false
+
+- name: local-path-provisioner のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/local-path-provisioner -n {{ kube_system_namespace }} --timeout={{ default_rollout_timeout }}"
+  register: localpath_rollout
+  until: localpath_rollout.rc == 0
+  retries: "{{ quick_retry_count }}"
+  delay: "{{ quick_retry_delay }}"
+  changed_when: false
+
+- name: metrics-server を 3 レプリカにスケール
+  ansible.builtin.command: "kubectl scale deployment metrics-server -n {{ kube_system_namespace }} --replicas={{ servers | default(3) }}"
+  register: scale_metrics
+  changed_when: "'scaled' in scale_metrics.stdout"
+  failed_when: false
+
+- name: metrics-server をサーバーノードに制限
+  ansible.builtin.command: >
+    kubectl patch deployment metrics-server -n {{ kube_system_namespace }}
+    -p '{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/control-plane":"true"}}}}}'
+  register: patch_metrics_node
+  changed_when: "'patched' in patch_metrics_node.stdout"
+  failed_when: false
+
+- name: metrics-server の PodAntiAffinity を設定
+  ansible.builtin.command: >
+    kubectl patch deployment metrics-server -n {{ kube_system_namespace }}
+    -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchExpressions":[{"key":"k8s-app","operator":"In","values":["metrics-server"]}]},"topologyKey":"kubernetes.io/hostname"}}]}}}}}}'
+  register: patch_metrics_affinity
+  changed_when: "'patched' in patch_metrics_affinity.stdout"
+  failed_when: false
+
+# Traefik の HA 構成 (replicas / nodeSelector / affinity / allowCrossNamespace) は
+# roles/k3d_cluster/templates/traefik-config.yaml.j2 (HelmChartConfig) が単一の正。
+# レプリカ数は traefik_replicas 変数 (config.env TRAEFIK_REPLICAS) で制御。
+# kubectl scale/patch による二重管理は廃止済み。
+
+- name: Traefik Deployment が作成されるまで待機
+  ansible.builtin.command: >
+    kubectl get deployment traefik -n {{ kube_system_namespace }}
+  register: traefik_deploy_check
+  until: traefik_deploy_check.rc == 0
+  retries: "{{ default_retry_count }}"
+  delay: "{{ default_retry_delay }}"
+  changed_when: false
+  when: not (disable_traefik | default(false))
+
+- name: Traefik Deployment のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/traefik -n {{ kube_system_namespace }} --timeout={{ default_rollout_timeout }}"
+  register: traefik_rollout
+  until: traefik_rollout.rc == 0
+  retries: "{{ quick_retry_count }}"
+  delay: "{{ quick_retry_delay }}"
+  changed_when: false
+  when: not (disable_traefik | default(false))
+
+- name: Traefik の不要な古い ReplicaSet (0 レプリカ) を削除
+  ansible.builtin.shell: |
+    for rs in $(kubectl get rs -n {{ kube_system_namespace }} -l app.kubernetes.io/name=traefik -o jsonpath='{range .items[?(@.spec.replicas==0)]}{.metadata.name}{" "}{end}'); do
+      kubectl delete rs "$rs" -n {{ kube_system_namespace }}
+    done
+  changed_when: false
+  failed_when: false
+  when: not (disable_traefik | default(false))
+
+- name: Traefik Official Standalone Dashboard をデプロイ (ブートストラップ用 BasicAuth)
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'traefik-dashboard.yaml.j2') }}"
+  register: apply_traefik_dashboard
+  changed_when: "'created' in apply_traefik_dashboard.stdout or 'configured' in apply_traefik_dashboard.stdout"
+  when: not (disable_traefik | default(false))
+# Note: oidc_integration (Phase 4) が Keycloak OIDC SSO (oauth2-proxy forwardAuth) に切り替え、BasicAuth リソースを削除する
+
+- name: Management & Control Plane 保護 NetworkPolicy を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'management-networkpolicy.yaml.j2') }}"
+  register: apply_mgmt_netpol
+  changed_when: "'created' in apply_mgmt_netpol.stdout or 'configured' in apply_mgmt_netpol.stdout"
+  when: enable_network_policy | default(true) | bool

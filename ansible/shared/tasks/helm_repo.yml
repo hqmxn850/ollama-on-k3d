@@ -1,0 +1,45 @@
+---
+# ==========================================================
+# Helm リポジトリの冪等登録 & 変更時更新 (共通タスク)
+#
+# 必須変数:
+#   helm_repos: リポジトリ定義のリスト
+#     - name: <ローカルエイリアス (識別子・リテラル可)>
+#       url:  <リポジトリ URL (helm_repo_* 変数を参照)>
+#
+# 使い方 (ロール tasks から相対パスで静的インポート):
+#   - name: Helm リポジトリを追加 (foo, bar)
+#     ansible.builtin.import_tasks: ../../../shared/tasks/helm_repo.yml
+#     vars:
+#       helm_repos:
+#         - name: foo
+#           url: "{{ helm_repo_foo }}"
+# ==========================================================
+- name: Helm リポジトリを冪等登録
+  ansible.builtin.shell: |
+    set -e
+    helm_repo_add() {
+      local name="$1" url="$2"
+      if helm repo list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$name"; then
+        local current
+        current=$(helm repo list 2>/dev/null | awk -v n="$name" '$1==n {print $2}')
+        if [ "$current" = "$url" ]; then
+          echo "skip:$name"
+          return 0
+        fi
+        helm repo remove "$name" >/dev/null 2>&1 || true
+      fi
+      helm repo add "$name" "$url"
+      echo "added:$name"
+    }
+    {% for repo in helm_repos %}
+    helm_repo_add {{ repo.name }} {{ repo.url }}
+    {% endfor %}
+  register: helm_repo_add
+  changed_when: "'added:' in helm_repo_add.stdout"
+
+# 使用するリポジトリのみ更新 (未変更時はスキップしてネットワーク負荷とタイムアウトを防止)
+- name: Helm リポジトリを更新 (登録変更時のみ)
+  ansible.builtin.command: "helm repo update {{ helm_repos | map(attribute='name') | join(' ') }}"
+  changed_when: false
+  when: helm_repo_add.changed

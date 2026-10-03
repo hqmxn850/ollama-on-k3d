@@ -1,0 +1,196 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: standard-alerts
+  namespace: {{ monitoring_namespace | default('cattle-monitoring-system') }}
+  labels:
+    app: kube-prometheus-stack
+    release: kube-prometheus-stack
+spec:
+  groups:
+  # =========================================================================
+  # 1. PostgreSQL HA (Keycloak PostgreSQL)
+  # =========================================================================
+  - name: postgresql.rules
+    rules:
+    - alert: PostgreSQLClusterDown
+      annotations:
+        summary: "PostgreSQL cluster is completely down"
+        description: "All PostgreSQL instances in the keycloak namespace are reporting down."
+      expr: sum(pg_up) == 0
+      for: 1m
+      labels:
+        severity: critical
+
+    - alert: PostgreSQLInstanceDown
+      annotations:
+        summary: "PostgreSQL instance {{ '{{' }} $labels.pod {{ '}}' }} is down"
+        description: "PostgreSQL pod {{ '{{' }} $labels.pod {{ '}}' }} in {{ '{{' }} $labels.namespace {{ '}}' }} is unreachable."
+      expr: pg_up == 0
+      for: 1m
+      labels:
+        severity: warning
+
+    - alert: PostgreSQLDeadlocksDetected
+      annotations:
+        summary: "PostgreSQL deadlocks detected on {{ '{{' }} $labels.pod {{ '}}' }}"
+        description: "PostgreSQL is experiencing deadlocks at rate {{ '{{' }} $value {{ '}}' }} per second."
+      expr: rate(pg_stat_database_deadlocks[5m]) > 0
+      for: 5m
+      labels:
+        severity: warning
+
+    - alert: PostgreSQLHighConnections
+      annotations:
+        summary: "PostgreSQL high connection usage on {{ '{{' }} $labels.pod {{ '}}' }}"
+        description: "PostgreSQL active connections count is {{ '{{' }} $value {{ '}}' }} (above 80% capacity)."
+      expr: sum by (instance, pod) (pg_stat_activity_count) > 80
+      for: 5m
+      labels:
+        severity: warning
+
+    - alert: PostgreSQLReplicationLag
+      annotations:
+        summary: "PostgreSQL replication lag detected on {{ '{{' }} $labels.pod {{ '}}' }}"
+        description: "PostgreSQL replica is lagging behind primary by {{ '{{' }} $value {{ '}}' }} seconds."
+      expr: pg_replication_lag > 30
+      for: 2m
+      labels:
+        severity: warning
+
+  # =========================================================================
+  # 2. Keycloak (SSO / IAM)
+  # =========================================================================
+  - name: keycloak.rules
+    rules:
+    - alert: KeycloakClusterDown
+      annotations:
+        summary: "Keycloak cluster is completely down"
+        description: "All Keycloak management endpoints are unreachable."
+      expr: sum(up{job="keycloak-keycloak-management"}) == 0
+      for: 1m
+      labels:
+        severity: critical
+
+    - alert: KeycloakInstanceDown
+      annotations:
+        summary: "Keycloak instance is down"
+        description: "Keycloak instance {{ '{{' }} $labels.instance {{ '}}' }} is unreachable."
+      expr: up{job="keycloak-keycloak-management"} == 0
+      for: 1m
+      labels:
+        severity: warning
+
+    - alert: KeycloakClusterDegraded
+      annotations:
+        summary: "Keycloak cluster is running degraded"
+        description: "Fewer than 3 Keycloak instances are healthy."
+      expr: count(up{job="keycloak-keycloak-management"} == 1) < 3
+      for: 2m
+      labels:
+        severity: warning
+
+    - alert: KeycloakJVMHeapHigh
+      annotations:
+        summary: "Keycloak JVM heap usage high on {{ '{{' }} $labels.instance {{ '}}' }}"
+        description: "Keycloak JVM heap usage is above 85%."
+      expr: (jvm_memory_bytes_used{area="heap",job="keycloak-keycloak-management"} / jvm_memory_bytes_max{area="heap",job="keycloak-keycloak-management"}) * 100 > 85
+      for: 5m
+      labels:
+        severity: warning
+
+  # =========================================================================
+  # 3. Traefik Ingress Controller
+  # =========================================================================
+  - name: traefik.rules
+    rules:
+    - alert: TraefikDown
+      annotations:
+        summary: "Traefik ingress controller metrics down"
+        description: "Traefik metrics endpoint is not reachable."
+      expr: sum(up{job="traefik-metrics"}) == 0
+      for: 1m
+      labels:
+        severity: critical
+
+    - alert: TraefikHighHTTP5xxRate
+      annotations:
+        summary: "Traefik high HTTP 5xx error rate"
+        description: "Traefik ingress HTTP 5xx error rate is {{ '{{' }} $value | printf \"%.2f\" {{ '}}' }}% (above 5%)."
+      expr: (sum(rate(traefik_entrypoint_requests_total{code=~"5.."}[5m])) / clamp_min(sum(rate(traefik_entrypoint_requests_total[5m])), 1)) * 100 > 5
+      for: 5m
+      labels:
+        severity: warning
+
+    - alert: TraefikHighLatency
+      annotations:
+        summary: "Traefik high request latency"
+        description: "Traefik 99th percentile request duration is {{ '{{' }} $value | printf \"%.2f\" {{ '}}' }}s (above 2s)."
+      expr: histogram_quantile(0.99, sum by (le) (rate(traefik_entrypoint_request_duration_seconds_bucket[5m]))) > 2
+      for: 5m
+      labels:
+        severity: warning
+
+  # =========================================================================
+  # 6. cert-manager (TLS 証明書管理)
+  # =========================================================================
+  - name: cert-manager.rules
+    rules:
+    - alert: CertManagerDown
+      annotations:
+        summary: "cert-manager controller is down"
+        description: "cert-manager controller metrics endpoint is not reachable."
+      expr: sum(up{job="cert-manager"}) == 0
+      for: 2m
+      labels:
+        severity: critical
+
+    - alert: CertManagerCertExpiringSoon
+      annotations:
+        summary: "TLS Certificate {{ '{{' }} $labels.name {{ '}}' }} expiring soon"
+        description: "Certificate {{ '{{' }} $labels.name {{ '}}' }} in {{ '{{' }} $labels.namespace {{ '}}' }} expires in less than 21 days."
+      expr: (certmanager_certificate_expiration_timestamp_seconds - time()) < (21 * 24 * 3600)
+      for: 1h
+      labels:
+        severity: warning
+
+    - alert: CertManagerCertNotReady
+      annotations:
+        summary: "TLS Certificate {{ '{{' }} $labels.name {{ '}}' }} is not ready"
+        description: "Certificate {{ '{{' }} $labels.name {{ '}}' }} in {{ '{{' }} $labels.namespace {{ '}}' }} is in NotReady state."
+      expr: certmanager_certificate_ready_status{condition="False"} == 1
+      for: 15m
+      labels:
+        severity: critical
+
+  # =========================================================================
+  # 7. クラスタ基盤・重要コンポーネント
+  # =========================================================================
+  - name: cluster-core.rules
+    rules:
+    - alert: CoreDNSDown
+      annotations:
+        summary: "CoreDNS cluster service is down"
+        description: "CoreDNS metrics endpoint is not reachable."
+      expr: sum(up{job="coredns"}) == 0
+      for: 1m
+      labels:
+        severity: critical
+
+    - alert: RancherServerDown
+      annotations:
+        summary: "Rancher Server is completely down"
+        description: "All Rancher Server endpoints are reporting down."
+      expr: sum(up{job="rancher"}) == 0
+      for: 2m
+      labels:
+        severity: critical
+
+    - alert: ClusterNodesDegraded
+      annotations:
+        summary: "Cluster node count degraded"
+        description: "Only {{ '{{' }} $value {{ '}}' }} nodes out of 6 are in Ready status."
+      expr: count(kube_node_status_condition{condition="Ready",status="true"} == 1) < 6
+      for: 2m
+      labels:
+        severity: critical

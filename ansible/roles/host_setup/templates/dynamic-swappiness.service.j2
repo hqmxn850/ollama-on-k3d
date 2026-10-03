@@ -1,0 +1,7 @@
+[Unit]
+Description=動的 swappiness ガバナー (1 回適用)
+After=sysinit.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dynamic-swappiness

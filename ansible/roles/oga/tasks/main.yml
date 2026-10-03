@@ -1,0 +1,49 @@
+---
+# ==============================================================================
+# OnnxRuntime GenAI (OGA) LLM / SLM サービス ロール
+#
+# Microsoft OnnxRuntime GenAI (OGA) を用いて推論 API サーバーをデプロイし、
+# AMD GPU (ROCm) / CPU を用いたローカル AI 推論基盤を提供する。
+# ==============================================================================
+
+- name: OGA 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ oga_namespace }}"
+  register: create_oga_ns
+  changed_when: "'created' in create_oga_ns.stdout"
+  failed_when: false
+
+- name: OGA NetworkPolicy を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'oga-networkpolicy.yaml.j2') }}"
+  register: apply_oga_netpol
+  changed_when: "'created' in apply_oga_netpol.stdout or 'configured' in apply_oga_netpol.stdout"
+  when: enable_network_policy | default(true) | bool
+
+- name: OGA マニフェスト (PVC, ConfigMap, Deployment, Service, Ingress) を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'oga-manifests.yaml.j2') }}"
+  register: apply_oga_manifests
+  changed_when: "'created' in apply_oga_manifests.stdout or 'configured' in apply_oga_manifests.stdout"
+
+- name: OGA Deployment のロールアウト完了を待機
+  ansible.builtin.command: >-
+    kubectl rollout status deployment/oga
+    -n {{ oga_namespace }}
+    --timeout={{ default_rollout_timeout | default('300s') }}
+  register: oga_rollout
+  until: oga_rollout.rc == 0
+  retries: "{{ quick_retry_count | default(10) }}"
+  delay: "{{ quick_retry_delay | default(5) }}"
+  changed_when: false
+
+- name: OGA Pod のステータスと割当を確認
+  ansible.builtin.shell: |
+    kubectl get pods -n {{ oga_namespace }} -o wide
+  register: oga_pods_status
+  changed_when: false
+
+- name: OGA Pod ステータスを表示
+  ansible.builtin.debug:
+    msg: "{{ oga_pods_status.stdout_lines | default([]) }}"

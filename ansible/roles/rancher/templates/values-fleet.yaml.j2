@@ -1,0 +1,40 @@
+# fleet HA 設定 (Helm values)
+# converge.yml の helm upgrade から --set を排除し、このファイル単一の正とする
+controller:
+  replicas: {{ fleet_replicas | default(1) }}
+gitjob:
+  replicas: {{ fleet_replicas | default(1) }}
+helmops:
+  replicas: {{ fleet_replicas | default(1) }}
+agent:
+  replicas: {{ fleet_replicas | default(1) }}
+nodeSelector:
+  node-role.kubernetes.io/control-plane: "true"
+# fleet 系 3 コンポーネント共通配置制約:
+# - 親 (Rancher) と同じノードへ集約 (podAffinity, preferred weight 100)
+# - fleet-controller / gitjob / helmops の多重化 Pod が同一ノードに重ならないよう分散 (podAntiAffinity, preferred weight 100)
+affinity:
+  podAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - rancher
+          topologyKey: kubernetes.io/hostname
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - fleet-controller
+                  - gitjob
+                  - helmops
+          topologyKey: kubernetes.io/hostname

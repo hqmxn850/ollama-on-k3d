@@ -1,0 +1,95 @@
+---
+# Traefik Official Dashboard - BasicAuth Secret
+apiVersion: v1
+kind: Secret
+metadata:
+  name: traefik-dashboard-auth-secret
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+type: kubernetes.io/basic-auth
+stringData:
+  username: "{{ traefik_admin_user | default('admin') }}"
+  password: "{{ traefik_admin_password | default('admin') }}"
+---
+# Traefik Official Dashboard - BasicAuth Middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-dashboard-auth
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  basicAuth:
+    secret: traefik-dashboard-auth-secret
+---
+# Traefik Official Dashboard - Root to Dashboard Redirect Middleware
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-dashboard-redirect
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  redirectRegex:
+    regex: "^https?://[^/]+/?$"
+    replacement: "/dashboard/"
+---
+# Traefik Official Dashboard - HTTPS IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - match: Host(`{{ traefik_hostname }}`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+      middlewares:
+        - name: traefik-dashboard-auth
+    - match: Host(`{{ traefik_hostname }}`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+      middlewares:
+        - name: traefik-dashboard-redirect
+        - name: traefik-dashboard-auth
+  tls:
+    domains:
+      - main: {{ traefik_hostname }}
+---
+# Traefik Official Dashboard - HTTP to HTTPS Redirect IngressRoute
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard-http
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: traefik
+    app.kubernetes.io/component: dashboard
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`{{ traefik_hostname }}`)
+      kind: Rule
+      middlewares:
+        - name: redirect-https
+          namespace: {{ kube_system_namespace | default('kube-system') }}
+      services:
+        - name: api@internal
+          kind: TraefikService

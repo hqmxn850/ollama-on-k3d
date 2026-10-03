@@ -1,0 +1,65 @@
+# 動的 swappiness ガバナー (1 分 loadavg をコア数正規化した load% 連動で
+# vm.swappiness を [DYNAMIC_SWAPPINESS_MIN, DYNAMIC_SWAPPINESS_MAX] で線形補間)
+#
+# SYSCTL_SWAPPINESS (静的値) はブート時・sysctl -p 適用時の初期値であり、
+# ガバナー有効時は systemd timer が DYNAMIC_SWAPPINESS_INTERVAL 秒ごとに
+# 動的値で上書きし続ける。無効化時は静的値 (sysctl_swappiness) を復元する。
+
+- name: 動的 swappiness ガバナー設定ファイルを配置
+  ansible.builtin.template:
+    src: dynamic-swappiness.env.j2
+    dest: /etc/default/dynamic-swappiness
+    mode: '0644'
+  become: true
+
+- name: 動的 swappiness ガバナースクリプトを配置
+  ansible.builtin.copy:
+    src: dynamic-swappiness.sh
+    dest: /usr/local/sbin/dynamic-swappiness
+    mode: '0755'
+  become: true
+
+- name: 動的 swappiness systemd ユニットを配置
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: '0644'
+  loop:
+    - { src: 'dynamic-swappiness.service.j2', dest: '/etc/systemd/system/dynamic-swappiness.service' }
+    - { src: 'dynamic-swappiness.timer.j2', dest: '/etc/systemd/system/dynamic-swappiness.timer' }
+  become: true
+  register: dynamic_swappiness_units
+
+- name: systemd デーモンをリロード (動的 swappiness ユニット変更時)
+  ansible.builtin.systemd:
+    daemon_reload: true
+  become: true
+  when: dynamic_swappiness_units.changed
+
+- name: 動的 swappiness を即時適用 (有効時のみ)
+  ansible.builtin.command: /usr/local/sbin/dynamic-swappiness
+  become: true
+  changed_when: false
+  when: dynamic_swappiness_enabled | bool
+
+- name: 動的 swappiness タイマーを有効化・起動 (有効時のみ)
+  ansible.builtin.systemd:
+    name: dynamic-swappiness.timer
+    enabled: true
+    state: started
+  become: true
+  when: dynamic_swappiness_enabled | bool
+
+- name: 動的 swappiness タイマーを停止・無効化 (無効時のみ)
+  ansible.builtin.systemd:
+    name: dynamic-swappiness.timer
+    enabled: false
+    state: stopped
+  become: true
+  when: not (dynamic_swappiness_enabled | bool)
+
+- name: 静的 swappiness を復元 (無効時のみ)
+  ansible.builtin.command: "sysctl -w vm.swappiness={{ sysctl_swappiness }}"
+  become: true
+  changed_when: true
+  when: not (dynamic_swappiness_enabled | bool)

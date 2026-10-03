@@ -1,0 +1,15 @@
+# Rancher 管理者グループ GlobalRoleBinding (Keycloak OIDC group principal)
+# oidc_integration/tasks/main.yml の stdin インラインからテンプレート化
+apiVersion: management.cattle.io/v3
+kind: GlobalRoleBinding
+metadata:
+  name: keycloak-rancher-admins
+globalRoleName: admin
+groupPrincipalName: "keycloakoidc_group://{{ admin_group_name }}"
+---
+apiVersion: management.cattle.io/v3
+kind: GlobalRoleBinding
+metadata:
+  name: keycloak-rancher-admins-slash
+globalRoleName: admin
+groupPrincipalName: "keycloakoidc_group:///{{ admin_group_name }}"

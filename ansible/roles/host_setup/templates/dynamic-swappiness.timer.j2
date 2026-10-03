@@ -1,0 +1,11 @@
+[Unit]
+Description=動的 swappiness ガバナータイマー ({{ dynamic_swappiness_interval }} 秒間隔)
+
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec={{ dynamic_swappiness_interval }}s
+AccuracySec=5s
+Unit=dynamic-swappiness.service
+
+[Install]
+WantedBy=timers.target

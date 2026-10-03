@@ -1,0 +1,61 @@
+crds:
+  enabled: false
+
+replicaCount: {{ cert_manager_replicas | default(1) }}
+
+prometheus:
+  enabled: true
+  servicemonitor:
+    enabled: false
+
+webhook:
+  replicaCount: {{ cert_manager_replicas | default(1) }}
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - webhook
+            topologyKey: kubernetes.io/hostname
+
+cainjector:
+  replicaCount: {{ cert_manager_replicas | default(1) }}
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - cainjector
+            topologyKey: kubernetes.io/hostname
+
+global:
+  leaderElection:
+    namespace: {{ cert_manager_namespace | default('cert-manager') }}
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - cert-manager
+            topologyKey: kubernetes.io/hostname

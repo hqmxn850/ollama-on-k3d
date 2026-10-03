@@ -1,0 +1,128 @@
+---
+# ==========================================================
+# kube-prometheus-stack 健全性待機 & ダッシュボード設定 (Converge)
+# ==========================================================
+
+- name: Prometheus Operator ポッドのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/kube-prometheus-stack-operator -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+
+- name: Prometheus StatefulSet のロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status statefulset/prometheus-kube-prometheus-stack-prometheus -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+
+- name: Alertmanager StatefulSet のロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status statefulset/alertmanager-kube-prometheus-stack-alertmanager -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+
+- name: Grafana ポッドのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/kube-prometheus-stack-grafana -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+
+- name: rancher-webhook が Ready になるまで待機 (ダッシュボードインストール前の競合防止)
+  ansible.builtin.command: "kubectl get endpoints rancher-webhook -n {{ rancher_namespace }} -o jsonpath='{.subsets[*].addresses[*].ip}'"
+  register: mon_webhook_endpoints
+  until: mon_webhook_endpoints.stdout | length > 0
+  retries: "{{ default_retry_count }}"
+  delay: "{{ default_retry_delay }}"
+  changed_when: false
+  failed_when: false
+
+- name: rancher-monitoring-dashboards をインストール / アップグレード
+  ansible.builtin.command: >
+    helm upgrade --install rancher-monitoring-dashboards rancher-charts/rancher-monitoring-dashboards
+    --namespace {{ monitoring_namespace }}
+    --version {{ rancher_monitoring_dashboards_chart_version | default('110.0.0+up0.1.2') }}
+    --force-conflicts -f -
+  args:
+    stdin: "{{ lookup('template', 'values-dashboards.yaml.j2') }}"
+  register: install_dashboards
+  until: install_dashboards.rc == 0
+  retries: "{{ standard_retry_count }}"
+  delay: "{{ standard_retry_delay }}"
+  changed_when: "'Release \"rancher-monitoring-dashboards\" has been upgraded' in install_dashboards.stdout or 'Release \"rancher-monitoring-dashboards\" does not exist' in install_dashboards.stdout"
+
+- name: rancher-monitoring-dashboards-monitoring-proxy のロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status deployment/rancher-monitoring-dashboards-monitoring-proxy -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
+  register: mon_proxy_rollout
+  until: mon_proxy_rollout is success
+  retries: "{{ quick_retry_count }}"
+  delay: "{{ quick_retry_delay }}"
+  changed_when: false
+
+- name: ServiceMonitor 群を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'service-monitors.yaml.j2') }}"
+  register: apply_sm
+  changed_when: "'configured' in apply_sm.stdout or 'created' in apply_sm.stdout"
+
+- name: 標準 PrometheusRule (PostgreSQL, Keycloak, Ceph, Registry, Traefik, cert-manager, Core) を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'prometheus-rules-standard.yaml.j2') }}"
+  register: apply_std_rules
+  changed_when: "'configured' in apply_std_rules.stdout or 'created' in apply_std_rules.stdout"
+
+- name: Grafana 用 Traefik IngressRoute を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'ingressroute.yaml.j2') }}"
+  register: apply_ir
+  changed_when: "'configured' in apply_ir.stdout or 'created' in apply_ir.stdout"
+
+- name: Grafana の組織デフォルト設定 (Home Dashboard, Timezone, Language) を適用
+  ansible.builtin.uri:
+    url: "https://{{ grafana_hostname }}/api/org/preferences"
+    method: PUT
+    user: "admin"
+    password: "{{ grafana_admin_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    body_format: json
+    body:
+      homeDashboardUID: "rancher-home-1"
+      timezone: "Asia/Tokyo"
+      language: "ja-JP"
+    status_code: [200]
+  failed_when: false
+
+- name: Grafana 管理者ユーザー設定 (Home Dashboard, Timezone, Language) を適用
+  ansible.builtin.uri:
+    url: "https://{{ grafana_hostname }}/api/user/preferences"
+    method: PUT
+    user: "admin"
+    password: "{{ grafana_admin_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    body_format: json
+    body:
+      homeDashboardUID: "rancher-home-1"
+      timezone: "Asia/Tokyo"
+      language: "ja-JP"
+    status_code: [200]
+  failed_when: false
+
+- name: 全 Grafana ダッシュボード ConfigMap のタイムゾーン (Asia/Tokyo) およびデータソースを自動補正
+  ansible.builtin.command: "python3 {{ role_path }}/files/patch-dashboards.py"
+  register: patch_dashboards_res
+  changed_when: "'0 live ConfigMap(s) updated' not in patch_dashboards_res.stdout"
+
+- name: Grafana DB (resource テーブル) のダッシュボードステータスを正常化 (action=1)
+  ansible.builtin.shell: |
+    kubectl exec -n {{ keycloak_namespace }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ grafana_db_password | default('grafana-db-2026') }}" psql -U grafana -d grafana -c "UPDATE resource SET action = 1 WHERE action = 2;"
+  changed_when: false
+  failed_when: false
+
+- name: Grafana ダッシュボードプロビジョニング設定を再読み込み
+  ansible.builtin.uri:
+    url: "https://{{ grafana_hostname }}/api/admin/provisioning/dashboards/reload"
+    method: POST
+    user: "admin"
+    password: "{{ grafana_admin_password }}"
+    force_basic_auth: true
+    validate_certs: false
+    status_code: [200, 204]
+  changed_when: false
+  failed_when: false
+

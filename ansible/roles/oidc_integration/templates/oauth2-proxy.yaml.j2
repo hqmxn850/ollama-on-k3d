@@ -1,0 +1,154 @@
+---
+# oauth2-proxy - Traefik Dashboard Keycloak OIDC forwardAuth
+apiVersion: v1
+kind: Secret
+metadata:
+  name: oauth2-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+type: Opaque
+stringData:
+  client-secret: "{{ traefik_client_secret | default('traefik-secret') }}"
+  cookie-secret: "{{ oauth2_proxy_cookie_secret | default('k3d-traefik-sso-cookie-secret-32') | b64encode }}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ oauth2_proxy_port | default(4180) }}
+      targetPort: {{ oauth2_proxy_port | default(4180) }}
+      protocol: TCP
+    - name: metrics
+      port: {{ oauth2_proxy_metrics_port | default(4181) }}
+      targetPort: {{ oauth2_proxy_metrics_port | default(4181) }}
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+      annotations:
+        prometheus.io/scrape: "false"
+    spec:
+      priorityClassName: system-cluster-critical
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+      affinity:
+        podAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app.kubernetes.io/name
+                      operator: In
+                      values:
+                        - traefik
+                topologyKey: kubernetes.io/hostname
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: oauth2-proxy
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: oauth2-proxy
+          image: "{{ oauth2_proxy_image | default('quay.io/oauth2-proxy/oauth2-proxy:v7.8.1') }}"
+          imagePullPolicy: IfNotPresent
+          args:
+            - --provider=oidc
+            - --oidc-issuer-url=https://{{ keycloak_hostname }}/realms/master
+            - --client-id=traefik
+            - --client-secret=$(CLIENT_SECRET)
+            - --cookie-secret=$(COOKIE_SECRET)
+            - --email-domain=*
+            - --http-address=0.0.0.0:{{ oauth2_proxy_port | default(4180) }}
+            - --upstream=static://204
+            - --redirect-url=https://{{ traefik_hostname }}/oauth2/callback
+            - --whitelist-domain=.{{ email_domain }}
+            - --scope=openid profile email
+            - --reverse-proxy=true
+            - --set-xauthrequest=true
+            - --skip-provider-button=true
+            - --insecure-oidc-allow-unverified-email=true
+            - --ssl-insecure-skip-verify=true
+            - --ssl-upstream-insecure-skip-verify=true
+            - --cookie-secure=true
+            - --cookie-samesite=lax
+            - --silence-ping-logging=true
+            - --metrics-address=0.0.0.0:{{ oauth2_proxy_metrics_port | default(4181) }}
+          env:
+            - name: CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy
+                  key: client-secret
+            - name: COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy
+                  key: cookie-secret
+          ports:
+            - name: http
+              containerPort: {{ oauth2_proxy_port | default(4180) }}
+            - name: metrics
+              containerPort: {{ oauth2_proxy_metrics_port | default(4181) }}
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: {{ oauth2_proxy_port | default(4180) }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: {{ oauth2_proxy_port | default(4180) }}
+            initialDelaySeconds: 10
+            periodSeconds: 15
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
+            runAsUser: 65532
+            capabilities:
+              drop:
+                - ALL

@@ -1,0 +1,372 @@
+---
+# ==========================================================
+# Rancher ロールアウト待機 & HA 構成 (Converge)
+# ==========================================================
+
+- name: Rancher のロールアウト完了を待機 (HA レプリカ収束ポーリング)
+  ansible.builtin.shell: |
+    DESIRED="{{ rancher_replicas | default(3) }}"
+    for i in $(seq 1 {{ rancher_ready_wait_steps }}); do
+      READY=$(kubectl get deployment rancher -n {{ rancher_namespace }} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+      READY=${READY:-0}
+      echo "Waiting for Rancher: ${READY}/${DESIRED} replicas ready (step $i/{{ rancher_ready_wait_steps }})..."
+      if [ "$READY" -ge "$DESIRED" ] && [ "$DESIRED" -gt 0 ]; then
+        echo "Rancher deployment successfully rolled out (${READY}/${DESIRED} ready)."
+        kubectl rollout status deployment/rancher -n {{ rancher_namespace }} --timeout={{ default_rollout_timeout }} 2>/dev/null || true
+        exit 0
+      fi
+      sleep {{ quick_retry_delay }}
+    done
+    echo "ERROR: Timeout waiting for Rancher rollout"
+    kubectl get pods -n {{ rancher_namespace }} -l app=rancher -o wide || true
+    kubectl describe deployment rancher -n {{ rancher_namespace }} || true
+    exit 1
+  register: wait_rancher
+  changed_when: false
+  until: wait_rancher.rc == 0
+  retries: "{{ once_retry_count }}"
+
+
+# --- Rancher 派生コンポーネントの HA 化 (3多重 & Server ノード均等分散配置) ---
+- name: rancher-webhook Deployment が作成されるまで待機
+  ansible.builtin.shell: |
+    for i in $(seq 1 {{ rancher_webhook_wait_steps }}); do
+      if kubectl get deployment rancher-webhook -n {{ rancher_namespace }} >/dev/null 2>&1; then
+        echo "rancher-webhook Deployment successfully detected (step $i/{{ rancher_webhook_wait_steps }})."
+        exit 0
+      fi
+      sleep {{ default_retry_delay }}
+    done
+    echo "ERROR: Timeout waiting for rancher-webhook Deployment creation"
+    kubectl get pods -n {{ rancher_namespace }} || true
+    exit 1
+  register: wait_webhook_dep
+  until: wait_webhook_dep.rc == 0
+  retries: "{{ once_retry_count }}"
+  changed_when: false
+
+- name: rancher-webhook を Helm レベルで 3 レプリカ & サーバーノード固定に更新
+  ansible.builtin.command: >
+    helm upgrade rancher-webhook rancher-charts/rancher-webhook
+    --namespace {{ rancher_namespace }}
+    --reuse-values
+    -f -
+  args:
+    stdin: "{{ lookup('template', 'values-rancher-webhook.yaml.j2') }}"
+  failed_when: false
+  changed_when: false
+
+- name: rancher-webhook のロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status deployment/rancher-webhook -n {{ rancher_namespace }} --timeout={{ extended_rollout_timeout }}"
+  changed_when: false
+  failed_when: false
+
+- name: rancher-webhook サービスのエンドポイントが Ready になるまで待機
+  ansible.builtin.shell: |
+    for i in $(seq 1 {{ rancher_webhook_eps_wait_steps }}); do
+      EPS=$(kubectl get endpoints rancher-webhook -n {{ rancher_namespace }} -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null || true)
+      if [ -n "$EPS" ]; then
+        echo "rancher-webhook endpoints ready: $EPS (step $i/{{ rancher_webhook_eps_wait_steps }})."
+        exit 0
+      fi
+      sleep {{ default_retry_delay }}
+    done
+    echo "ERROR: Timeout waiting for rancher-webhook endpoints"
+    kubectl get endpoints rancher-webhook -n {{ rancher_namespace }} || true
+    kubectl get pods -n {{ rancher_namespace }} -l app=rancher-webhook || true
+    exit 1
+  register: wait_webhook_eps
+  until: wait_webhook_eps.rc == 0
+  retries: "{{ once_retry_count }}"
+  changed_when: false
+
+- name: fleet 関連コンポーネントを Helm レベルで多重化 & サーバーノード固定に更新
+  ansible.builtin.command: >
+    helm upgrade fleet rancher-charts/fleet
+    --namespace {{ fleet_namespace }}
+    --reuse-values
+    -f -
+  args:
+    stdin: "{{ lookup('template', 'values-fleet.yaml.j2') }}"
+  failed_when: false
+  changed_when: false
+
+- name: fleet 関連コンポーネント (fleet-controller / gitjob / helmops) を 3 レプリカ & server ノード配置に設定
+  ansible.builtin.command: >
+    kubectl patch deployment fleet-controller gitjob helmops
+    -n {{ fleet_namespace }}
+    --type merge
+    -p '{
+      "spec": {
+        "replicas": {{ fleet_replicas | default(3) }},
+        "template": {
+          "spec": {
+            "nodeSelector": {
+              "node-role.kubernetes.io/control-plane": "true"
+            }
+          }
+        }
+      }
+    }'
+  failed_when: false
+  changed_when: false
+
+- name: fleet 関連コンポーネントのロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status deployment/fleet-controller deployment/gitjob deployment/helmops -n {{ fleet_namespace }} --timeout={{ default_rollout_timeout }}"
+  failed_when: false
+  changed_when: false
+
+- name: Rancher 本体デプロイをサーバーノード固定に設定 (チャートが nodeSelector 非対応のため kubectl パッチ)
+  ansible.builtin.command: >
+    kubectl patch deployment rancher
+    -n {{ rancher_namespace }}
+    --type merge
+    -p '{
+      "spec": {
+        "template": {
+          "spec": {
+            "nodeSelector": {
+              "node-role.kubernetes.io/control-plane": "true"
+            }
+          }
+        }
+      }
+    }'
+  failed_when: false
+  changed_when: false
+
+- name: Rancher 本体デプロイのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/rancher -n {{ rancher_namespace }} --timeout={{ default_rollout_timeout }}"
+  failed_when: false
+  changed_when: false
+
+- name: system-upgrade-controller をサーバーノード固定に設定
+  ansible.builtin.command: >
+    kubectl patch deployment system-upgrade-controller
+    -n {{ rancher_namespace }}
+    --type merge
+    -p '{
+      "spec": {
+        "template": {
+          "spec": {
+            "nodeSelector": {
+              "node-role.kubernetes.io/control-plane": "true"
+            }
+          }
+        }
+      }
+    }'
+  failed_when: false
+  changed_when: false
+
+- name: system-upgrade-controller のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/system-upgrade-controller -n {{ rancher_namespace }} --timeout={{ default_rollout_timeout }}"
+  failed_when: false
+  changed_when: false
+
+- name: fleet-agent への HA レプリカ数伝播を待機 (fleet-controller 経由)
+  ansible.builtin.command: "kubectl get deployment fleet-agent -n {{ fleet_local_namespace }} -o jsonpath={.spec.replicas}"
+  register: fleet_agent_replicas
+  until: fleet_agent_replicas.stdout | trim | int == (fleet_replicas | default(3) | int)
+  retries: "{{ standard_retry_count | default(20) }}"
+  delay: "{{ default_retry_delay | default(5) }}"
+  failed_when: false
+  changed_when: false
+
+- name: fleet-agent をサーバーノード固定に設定 (cattle-fleet-local-system)
+  ansible.builtin.command: >
+    kubectl patch deployment fleet-agent
+    -n {{ fleet_local_namespace }}
+    --type merge
+    -p '{
+      "spec": {
+        "template": {
+          "spec": {
+            "nodeSelector": {
+              "node-role.kubernetes.io/control-plane": "true"
+            }
+          }
+        }
+      }
+    }'
+  failed_when: false
+  changed_when: false
+
+- name: fleet-agent のロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/fleet-agent -n {{ fleet_local_namespace }} --timeout={{ default_rollout_timeout }}"
+  failed_when: false
+  changed_when: false
+
+- name: CAPI (Cluster API) コントローラーを 3 レプリカ & server ノード配置に設定 (CAPIProvider パッチ)
+  ansible.builtin.command: >
+    kubectl patch capiproviders.turtles-capi.cattle.io cluster-api
+    -n {{ capi_namespace }}
+    --type merge
+    -p '{
+      "spec": {
+        "deployment": {
+          "replicas": {{ capi_replicas | default(3) }},
+          "nodeSelector": {
+            "node-role.kubernetes.io/control-plane": "true"
+          },
+          "affinity": {
+            "podAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {"key": "app", "operator": "In", "values": ["rancher"]}
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            },
+            "podAntiAffinity": {
+              "preferredDuringSchedulingIgnoredDuringExecution": [
+                {
+                  "weight": 100,
+                  "podAffinityTerm": {
+                    "labelSelector": {
+                      "matchExpressions": [
+                        {"key": "cluster.x-k8s.io/provider", "operator": "In", "values": ["cluster-api"]}
+                      ]
+                    },
+                    "topologyKey": "kubernetes.io/hostname"
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    }'
+  failed_when: false
+  changed_when: false
+
+- name: capi-controller-manager のロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status deployment/capi-controller-manager -n {{ capi_namespace }} --timeout={{ default_rollout_timeout }}"
+  failed_when: false
+  changed_when: false
+
+- name: rancher-turtles-controller-manager を 3 レプリカ & 親 (Rancher) 同居・多重分散配置に設定
+  ansible.builtin.command: >
+    kubectl patch deployment rancher-turtles-controller-manager
+    -n {{ turtles_namespace }}
+    --type merge
+    -p '{
+      "spec": {
+        "replicas": {{ turtles_replicas | default(3) }},
+        "template": {
+          "spec": {
+            "nodeSelector": {
+              "node-role.kubernetes.io/control-plane": "true"
+            },
+            "affinity": {
+              "podAffinity": {
+                "preferredDuringSchedulingIgnoredDuringExecution": [
+                  {
+                    "weight": 100,
+                    "podAffinityTerm": {
+                      "labelSelector": {
+                        "matchExpressions": [
+                          {"key": "app", "operator": "In", "values": ["rancher"]}
+                        ]
+                      },
+                      "topologyKey": "kubernetes.io/hostname"
+                    }
+                  }
+                ]
+              },
+              "podAntiAffinity": {
+                "preferredDuringSchedulingIgnoredDuringExecution": [
+                  {
+                    "weight": 100,
+                    "podAffinityTerm": {
+                      "labelSelector": {
+                        "matchExpressions": [
+                          {"key": "control-plane", "operator": "In", "values": ["controller-manager"]}
+                        ]
+                      },
+                      "topologyKey": "kubernetes.io/hostname"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }'
+  failed_when: false
+  changed_when: false
+
+- name: rancher-turtles-controller-manager のロールアウト完了を待機 (HA 3 レプリカ)
+  ansible.builtin.command: "kubectl rollout status deployment/rancher-turtles-controller-manager -n {{ turtles_namespace }} --timeout={{ default_rollout_timeout }}"
+  failed_when: false
+  changed_when: false
+
+- name: Traefik ロードバランサー IP を取得
+  ansible.builtin.command: "kubectl get svc -n {{ kube_system_namespace }} traefik -o jsonpath='{.status.loadBalancer.ingress[*].ip}'"
+  register: lb_ips_raw
+  changed_when: false
+
+- name: dnsmasq レコードを設定
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: /etc/NetworkManager/dnsmasq.d/rancher.conf
+    mode: '0644'
+  vars:
+    lb_ips: "{{ lb_ips_raw.stdout.split() }}"
+  when: lb_ips_raw.stdout | length > 0
+  become: true
+  notify: Reload NetworkManager
+
+- name: NetworkManager を dnsmasq モードに設定
+  ansible.builtin.copy:
+    content: |
+      [main]
+      dns=dnsmasq
+    dest: /etc/NetworkManager/conf.d/00-use-dnsmasq.conf
+    mode: '0644'
+  become: true
+  notify: Restart NetworkManager
+
+- name: Rancher Dashboard 日本語化パッチを適用 (i18n 日本語固定)
+  ansible.builtin.command: "{{ playbook_dir }}/../../manifests/rancher-i18n/patch-rancher-i18n.sh"
+  register: rancher_i18n_patch
+  changed_when: "'パッチ適用が完了しました' in rancher_i18n_patch.stdout"
+  failed_when: false
+
+- name: ホストの Helm リポジトリを Rancher Apps & Marketplace (ClusterRepo) に同期登録
+  ansible.builtin.shell: |
+    set -e
+    helm repo list 2>/dev/null | awk 'NR>1 {print $1, $2}' | while read -r name url; do
+      [ -z "$name" ] && continue
+      repo_name="$name"
+      if [ "$repo_name" = "rancher-charts" ]; then
+        repo_name="rancher-charts-http"
+      fi
+      printf '%s\n' "---" \
+        "apiVersion: catalog.cattle.io/v1" \
+        "kind: ClusterRepo" \
+        "metadata:" \
+        "  name: ${repo_name}" \
+        "spec:" \
+        "  url: ${url}"
+    done | kubectl apply -f -
+  register: sync_cluster_repos
+  changed_when: "'created' in sync_cluster_repos.stdout"
+  failed_when: false
+
+- name: Application Plane (Rancher) 保護 NetworkPolicy を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'rancher-networkpolicy.yaml.j2') }}"
+  register: apply_rancher_netpol
+  changed_when: "'created' in apply_rancher_netpol.stdout or 'configured' in apply_rancher_netpol.stdout"
+  when: enable_network_policy | default(true) | bool
+

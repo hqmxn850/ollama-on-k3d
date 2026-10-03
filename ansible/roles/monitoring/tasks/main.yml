@@ -1,0 +1,10 @@
+---
+# ==========================================================
+# Monitoring Stack デプロイタスク
+# ==========================================================
+
+- name: "[Monitoring] 先行マニフェスト投入 (Launch)"
+  ansible.builtin.import_tasks: launch.yml
+
+- name: "[Monitoring] 健全性待機 & ダッシュボード構成 (Converge)"
+  ansible.builtin.import_tasks: converge.yml

@@ -1,0 +1,10 @@
+---
+# ==========================================================
+# Rancher デプロイタスク
+# ==========================================================
+
+- name: "[Rancher] 先行マニフェスト投入 (Launch)"
+  ansible.builtin.import_tasks: launch.yml
+
+- name: "[Rancher] 健全性待機 & HA 構成 (Converge)"
+  ansible.builtin.import_tasks: converge.yml

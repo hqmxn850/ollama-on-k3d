@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: k8s-controlplane-proxy-config
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    k8s-app: k8s-controlplane-metrics-proxy
+data:
+  nginx.conf: |
+    events { worker_connections 256; }
+    http {
+      server {
+        listen {{ k8s_metrics_proxy_port | default(10240) }};
+        location = /metrics/etcd {
+          proxy_pass http://127.0.0.1:2381/metrics;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 10s;
+        }
+        location = /metrics/proxy {
+          proxy_pass http://127.0.0.1:10249/metrics;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 10s;
+        }
+        location = /metrics/controller-manager {
+          proxy_pass https://127.0.0.1:10257/metrics;
+          proxy_ssl_certificate /etc/k3s-tls/client-admin.crt;
+          proxy_ssl_certificate_key /etc/k3s-tls/client-admin.key;
+          proxy_ssl_verify off;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 10s;
+        }
+        location = /metrics/scheduler {
+          proxy_pass https://127.0.0.1:10259/metrics;
+          proxy_ssl_certificate /etc/k3s-tls/client-admin.crt;
+          proxy_ssl_certificate_key /etc/k3s-tls/client-admin.key;
+          proxy_ssl_verify off;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 10s;
+        }
+        location = /healthz {
+          return 200 "ok\n";
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: k8s-controlplane-metrics-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    k8s-app: k8s-controlplane-metrics-proxy
+spec:
+  selector:
+    matchLabels:
+      k8s-app: k8s-controlplane-metrics-proxy
+  template:
+    metadata:
+      labels:
+        k8s-app: k8s-controlplane-metrics-proxy
+    spec:
+      hostNetwork: true
+      tolerations:
+      - operator: Exists
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: "true"
+      containers:
+      - name: nginx
+        image: {{ monitoring_metrics_proxy_image | default('docker.io/rancher/mirrored-library-nginx:1.31.2-alpine') }}
+        ports:
+        - containerPort: {{ k8s_metrics_proxy_port | default(10240) }}
+          name: proxy-metrics
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+        - name: k3s-tls
+          mountPath: /etc/k3s-tls
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: k8s-controlplane-proxy-config
+      - name: k3s-tls
+        hostPath:
+          path: /var/lib/rancher/k3s/server/tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: k8s-controlplane-metrics-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    k8s-app: k8s-controlplane-metrics-proxy
+spec:
+  type: ClusterIP
+  selector:
+    k8s-app: k8s-controlplane-metrics-proxy
+  ports:
+  - name: proxy-metrics
+    port: {{ k8s_metrics_proxy_port | default(10240) }}
+    targetPort: {{ k8s_metrics_proxy_port | default(10240) }}
+    protocol: TCP
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-auth-delegator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+- kind: ServiceAccount
+  name: kube-prometheus-stack-prometheus
+  namespace: {{ monitoring_namespace | default('cattle-monitoring-system') }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-cdi-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cdi-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: kube-prometheus-stack-prometheus
+  namespace: {{ monitoring_namespace | default('cattle-monitoring-system') }}
+

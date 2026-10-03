@@ -1,0 +1,35 @@
+alertmanagerProxy:
+  enabled: true
+
+global:
+  cattle:
+    clusterId: local
+    clusterName: local
+
+monitoringProxy:
+  replicas: {{ monitoring_proxy_replicas | default(1) }}
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - kube-prometheus-stack-operator
+            topologyKey: kubernetes.io/hostname
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - rancher-monitoring-dashboards
+            topologyKey: kubernetes.io/hostname

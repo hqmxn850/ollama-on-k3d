@@ -1,0 +1,390 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keycloak
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: keycloak
+  namespaceSelector:
+    matchNames:
+    - {{ keycloak_namespace | default('keycloak') }}
+  endpoints:
+  - port: management
+    path: /metrics
+    interval: 30s
+{% if keycloak_pg_metrics_enabled | default(true) | bool %}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: keycloak-pg-postgresql
+  namespace: {{ keycloak_namespace | default('keycloak') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql-ha
+      app.kubernetes.io/component: postgresql
+  namespaceSelector:
+    matchNames:
+    - {{ keycloak_namespace | default('keycloak') }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+{% endif %}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fleet-controller
+  namespace: {{ fleet_namespace | default('cattle-fleet-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: fleet-controller
+  namespaceSelector:
+    matchNames:
+    - cattle-fleet-system
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: fleet-gitjob
+  namespace: {{ fleet_namespace | default('cattle-fleet-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: gitjob
+  namespaceSelector:
+    matchNames:
+    - cattle-fleet-system
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: traefik
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: traefik
+  namespaceSelector:
+    matchNames:
+    - kube-system
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: rancher
+  namespace: {{ rancher_namespace | default('cattle-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: rancher
+  namespaceSelector:
+    matchNames:
+    - {{ rancher_namespace | default('cattle-system') }}
+  endpoints:
+  - port: https
+    path: /metrics
+    interval: 30s
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+    bearerTokenSecret:
+      name: rancher-monitoring-token
+      key: token
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager
+  namespace: {{ cert_manager_namespace | default('cert-manager') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cert-manager
+  namespaceSelector:
+    matchNames:
+    - {{ cert_manager_namespace | default('cert-manager') }}
+  endpoints:
+  - port: http-metrics
+    path: /metrics
+    interval: 30s
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager-cainjector
+  namespace: {{ cert_manager_namespace | default('cert-manager') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: cainjector
+  namespaceSelector:
+    matchNames:
+    - {{ cert_manager_namespace | default('cert-manager') }}
+  endpoints:
+  - port: http-metrics
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: cert-manager-webhook
+  namespace: {{ cert_manager_namespace | default('cert-manager') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: webhook
+  namespaceSelector:
+    matchNames:
+    - {{ cert_manager_namespace | default('cert-manager') }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+
+
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kubernetes-apiserver
+  namespace: {{ default_namespace | default('default') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      component: apiserver
+      provider: kubernetes
+  namespaceSelector:
+    matchNames:
+    - default
+  endpoints:
+  - port: https
+    scheme: https
+    tlsConfig:
+      caFile: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+      serverName: kubernetes
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: coredns
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      k8s-app: kube-dns
+  namespaceSelector:
+    matchNames:
+    - kube-system
+  endpoints:
+  - port: metrics
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: oauth2-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+  namespaceSelector:
+    matchNames:
+    - kube-system
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: metrics-server
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      k8s-app: metrics-server
+  namespaceSelector:
+    matchNames:
+    - {{ kube_system_namespace | default('kube-system') }}
+  endpoints:
+  - port: https
+    path: /metrics
+    interval: 30s
+    scheme: https
+    tlsConfig:
+      insecureSkipVerify: true
+    bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k3s-etcd
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      k8s-app: k8s-controlplane-metrics-proxy
+  namespaceSelector:
+    matchNames:
+    - {{ kube_system_namespace | default('kube-system') }}
+  endpoints:
+  - port: proxy-metrics
+    path: /metrics/etcd
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k3s-kube-proxy
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      k8s-app: k8s-controlplane-metrics-proxy
+  namespaceSelector:
+    matchNames:
+    - {{ kube_system_namespace | default('kube-system') }}
+  endpoints:
+  - port: proxy-metrics
+    path: /metrics/proxy
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k3s-kube-controller-manager
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      k8s-app: k8s-controlplane-metrics-proxy
+  namespaceSelector:
+    matchNames:
+    - {{ kube_system_namespace | default('kube-system') }}
+  endpoints:
+  - port: proxy-metrics
+    path: /metrics/controller-manager
+    interval: 30s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: k3s-kube-scheduler
+  namespace: {{ kube_system_namespace | default('kube-system') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      k8s-app: k8s-controlplane-metrics-proxy
+  namespaceSelector:
+    matchNames:
+    - {{ kube_system_namespace | default('kube-system') }}
+  endpoints:
+  - port: proxy-metrics
+    path: /metrics/scheduler
+    interval: 30s
+{% if ollama_enabled | default(true) | bool %}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: ollama
+  namespace: {{ ollama_namespace | default('ollama') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ollama-exporter
+  namespaceSelector:
+    matchNames:
+    - {{ ollama_namespace | default('ollama') }}
+  endpoints:
+  - port: metrics
+    path: /metrics
+    interval: 15s
+{% endif %}
+{% if oga_enabled | default(true) | bool %}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: oga
+  namespace: {{ oga_namespace | default('oga') }}
+  labels:
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oga
+  namespaceSelector:
+    matchNames:
+    - {{ oga_namespace | default('oga') }}
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s
+{% endif %}
+
+
+
+

@@ -1,0 +1,66 @@
+---
+# ==========================================================
+# Ollama on K3D - AI 基盤自動デプロイメント Playbook
+# Server: 1ノード (8コア: CORE, モニタリング, SSO)
+# Worker: 1ノード (24コア: AI, GPU/NPU, LLM)
+# ==========================================================
+
+# Phase 1: ホスト設定 & K3D クラスタプロビジョニング
+- name: "[Phase 1] K3D クラスタ基盤プロビジョニング (host_setup / k3d_cluster)"
+  ansible.builtin.import_playbook: cluster.yml
+
+# Phase 2: Keycloak 認証基盤 (PostgreSQL / Keycloak SSO)
+- name: "[Phase 2] 認証基盤プロビジョニング (keycloak)"
+  ansible.builtin.import_playbook: storage_auth.yml
+
+# Phase 3: Rancher, Monitoring (Server) & AMD GPU, Ollama, OGA, Open WebUI (Worker)
+- name: "[Phase 3] アプリケーション・AI・監視基盤プロビジョニング (rancher / monitoring / amd_gpu / ollama / oga / open_webui)"
+  ansible.builtin.import_playbook: apps.yml
+
+# Phase 4: Keycloak OIDC 統合 & 認証情報出力
+- name: "[Phase 4] Keycloak OIDC 統合設定 & 認証情報出力 (oidc_integration)"
+  ansible.builtin.import_playbook: oidc.yml
+
+# Phase 5: クラスタ最終健全化 & 不要な古い ReplicaSet (0 レプリカ) 一括クリーンアップ
+- name: "[Phase 5] クラスタ健全化 & 不要な古い残存 ReplicaSet (0 レプリカ) 一括クリーンアップ"
+  hosts: local
+  gather_facts: false
+  tasks:
+    - name: 全名前空間の不要な古い ReplicaSet (0 レプリカ) を自動一括クリーンアップ
+      tags:
+        - cleanup
+      ansible.builtin.shell: |
+        for rs in $(kubectl get rs -A -o jsonpath='{range .items[?(@.spec.replicas==0)]}{.metadata.namespace}{"/"}{.metadata.name}{" "}{end}' 2>/dev/null); do
+          NS="${rs%%/*}"
+          NAME="${rs##*/}"
+          kubectl delete rs "$NAME" -n "$NS" --wait=false 2>/dev/null || true
+        done
+        for rs in $(kubectl get rs -A -o jsonpath='{range .items[?(@.status.replicas==0)]}{.metadata.namespace}{"/"}{.metadata.name}{" "}{end}' 2>/dev/null); do
+          NS="${rs%%/*}"
+          NAME="${rs##*/}"
+          kubectl delete rs "$NAME" -n "$NS" --wait=false 2>/dev/null || true
+        done
+      changed_when: false
+      failed_when: false
+
+    - name: 実行時管理リソース (turtles / CAPIProvider / system-upgrade / fleet-agent) のサーバーノード配置パッチを最終適用
+      tags:
+        - cleanup
+        - placement
+      ansible.builtin.shell: |
+        NSSEL='"node-role.kubernetes.io/control-plane":"true"'
+        kubectl patch deployment rancher-turtles-controller-manager -n {{ turtles_namespace }} --type merge -p '{"spec":{"replicas":{{ turtles_replicas | default(3) }},"template":{"spec":{"nodeSelector":{'"$NSSEL"'} }}}}' 2>/dev/null || true
+        for i in $(seq 1 40); do
+          kubectl get capiproviders.turtles-capi.cattle.io cluster-api -n {{ capi_namespace }} >/dev/null 2>&1 && break
+          sleep 5
+        done
+        kubectl patch capiproviders.turtles-capi.cattle.io cluster-api -n {{ capi_namespace }} --type merge -p '{"spec":{"deployment":{"replicas":{{ capi_replicas | default(3) }},"nodeSelector":{'"$NSSEL"'}}}}' 2>/dev/null || true
+        kubectl patch deployment system-upgrade-controller -n {{ rancher_namespace }} --type merge -p '{"spec":{"template":{"spec":{"nodeSelector":{'"$NSSEL"'}}}}}' 2>/dev/null || true
+        kubectl patch deployment fleet-agent -n {{ fleet_local_namespace }} --type merge -p '{"spec":{"template":{"spec":{"nodeSelector":{'"$NSSEL"'}}}}}' 2>/dev/null || true
+        sleep 3
+        kubectl rollout status deployment/rancher-turtles-controller-manager -n {{ turtles_namespace }} --timeout={{ default_rollout_timeout }} 2>/dev/null || true
+        kubectl rollout status deployment/capi-controller-manager -n {{ capi_namespace }} --timeout={{ default_rollout_timeout }} 2>/dev/null || true
+        kubectl rollout status deployment/system-upgrade-controller -n {{ rancher_namespace }} --timeout={{ default_rollout_timeout }} 2>/dev/null || true
+        kubectl rollout status deployment/fleet-agent -n {{ fleet_local_namespace }} --timeout={{ default_rollout_timeout }} 2>/dev/null || true
+      changed_when: false
+      failed_when: false

@@ -1,0 +1,85 @@
+---
+# ==========================================================
+# cert-manager & Rancher デプロイ先行投入 (Launch)
+# ==========================================================
+
+- name: cert-manager 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ cert_manager_namespace }}"
+  register: create_cm_ns
+  changed_when: "'created' in create_cm_ns.stdout"
+  failed_when: false
+
+# cert-manager チャートと同系統バージョンの CRD を適用 (versions.env の CERT_MANAGER_CHART_VERSION が正)
+- name: cert-manager CRD を適用
+  ansible.builtin.command: "kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/{{ cert_manager_chart_version | default('v1.21.2') }}/cert-manager.crds.yaml"
+  changed_when: false
+
+- name: Helm リポジトリを追加 (jetstack, rancher-stable)
+  ansible.builtin.import_tasks: ../../../shared/tasks/helm_repo.yml
+  vars:
+    helm_repos:
+      - name: jetstack
+        url: "{{ helm_repo_jetstack }}"
+      - name: rancher-stable
+        url: "{{ helm_repo_rancher_stable }}"
+
+- name: cert-manager をデプロイ / 更新 (HA 3 レプリカ)
+  ansible.builtin.command: "helm upgrade --install cert-manager jetstack/cert-manager --namespace {{ cert_manager_namespace }} --version {{ cert_manager_chart_version }} --wait --timeout {{ extended_rollout_timeout }} -f -"
+  args:
+    stdin: "{{ lookup('template', 'values-cert-manager.yaml.j2') }}"
+  register: deploy_cert_manager
+  until: deploy_cert_manager.rc == 0
+  retries: "{{ steady_retry_count }}"
+  delay: "{{ steady_retry_delay }}"
+  changed_when: "'Release \"cert-manager\" has been upgraded' in deploy_cert_manager.stdout or 'Release \"cert-manager\" does not exist' in deploy_cert_manager.stdout"
+
+- name: cert-manager 各コンポーネントのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/{{ item }} -n {{ cert_manager_namespace }} --timeout={{ extended_rollout_timeout }}"
+  loop:
+    - cert-manager
+    - cert-manager-cainjector
+    - cert-manager-webhook
+  changed_when: false
+
+- name: 内部 CA および Keycloak 証明書マニフェストを適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'internal-ca.yaml.j2') }}"
+  changed_when: false
+
+- name: 内部ルート CA Secret の生成完了を待機
+  ansible.builtin.command: "kubectl get secret -n {{ cert_manager_namespace }} internal-root-ca-secret"
+  register: wait_root_ca
+  until: wait_root_ca.rc == 0
+  retries: "{{ standard_retry_count }}"
+  delay: "{{ standard_retry_delay }}"
+  changed_when: false
+
+- name: cattle-system 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ rancher_namespace }}"
+  register: create_cattle_ns
+  changed_when: "'created' in create_cattle_ns.stdout"
+  failed_when: false
+
+- name: Rancher 信頼用追加 CA Secret (tls-ca-additional) を作成
+  ansible.builtin.shell: |
+    CA_CRT=$(kubectl get secret -n {{ cert_manager_namespace }} internal-root-ca-secret -o jsonpath='{.data.tls\.crt}' | base64 -d)
+    kubectl create secret generic tls-ca-additional -n {{ rancher_namespace }} \
+      --from-literal=ca-additional.pem="$CA_CRT" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  changed_when: false
+
+- name: Rancher をデプロイ / 更新 (HA 3 レプリカ)
+  ansible.builtin.command: "helm upgrade --install rancher rancher-stable/rancher --namespace {{ rancher_namespace }} --version {{ rancher_chart_version }} -f -"
+  args:
+    stdin: "{{ lookup('template', 'values-rancher.yaml.j2') }}"
+  register: deploy_rancher
+  changed_when: "'Release \"rancher\" has been upgraded' in deploy_rancher.stdout or 'Release \"rancher\" does not exist' in deploy_rancher.stdout"
+
+- name: Rancher Deployment の progressDeadlineSeconds を拡張 (早期タイムアウト防止)
+  ansible.builtin.command: >
+    kubectl patch deployment rancher -n {{ rancher_namespace }}
+    --type=merge -p '{"spec":{"progressDeadlineSeconds":{{ (long_rollout_timeout | default('1200s')) | regex_replace("s$", "") }}}}'
+  changed_when: false
+  failed_when: false
+

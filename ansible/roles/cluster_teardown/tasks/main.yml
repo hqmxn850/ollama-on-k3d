@@ -1,0 +1,149 @@
+---
+- name: クラスタ実行中イメージの Podman 保存と images.txt 更新
+  ansible.builtin.command: "{{ role_path }}/files/save-images.sh {{ images_file | default(playbook_dir ~ '/../../images.txt') }}"
+  failed_when: false
+  changed_when: false
+  when: lookup('env', '_SAVED_IMAGES_DONE') != '1'
+
+- name: クラスタ削除前に残存 FUSE 接続および RBD デバイスを中止・解放 (コンテナ D state 停止ハング防止)
+  ansible.builtin.shell: |
+    # 残存 RBD デバイスを強制 unmap
+    for d in /sys/bus/rbd/devices/*; do
+      if [ -d "$d" ]; then
+        dev_id=$(basename "$d")
+        echo "$dev_id force" > /sys/bus/rbd/remove_single_major 2>/dev/null || echo "$dev_id" > /sys/bus/rbd/remove 2>/dev/null || true
+      fi
+    done
+    # 残存 FUSE 接続を中止
+    for conn in /sys/fs/fuse/connections/*; do
+      if [ -f "$conn/abort" ]; then
+        echo 1 > "$conn/abort" 2>/dev/null || true
+      fi
+    done
+  become: true
+  failed_when: false
+  changed_when: false
+
+- name: K3D クラスタを削除
+  ansible.builtin.command: "k3d cluster delete {{ cluster_name }}"
+  register: delete_result
+  failed_when: false
+  become: true
+
+- name: K3D クラスタ削除結果を表示
+  ansible.builtin.debug:
+    msg: >-
+      K3D クラスタ '{{ cluster_name }}' の削除{{ 'に成功しました' if delete_result.rc == 0 else 'が失敗しました (終了コード: ' ~ delete_result.rc ~ ')' }}
+  when: delete_result.rc is defined
+
+- name: クラスタ削除後に残存 FUSE 接続を中止
+  ansible.builtin.shell: |
+    for conn in /sys/fs/fuse/connections/*; do
+      if [ -f "$conn/abort" ]; then
+        echo 1 > "$conn/abort" 2>/dev/null || true
+      fi
+    done
+  become: true
+  failed_when: false
+  changed_when: false
+
+- name: 残存する k3d コンテナを強制削除
+  ansible.builtin.shell: >
+    CONTAINERS=$(podman ps -a --filter "label=app=k3d" --filter "name=k3d-{{ cluster_name }}" --format "{{ '{{' }}.ID{{ '}}' }}" | sort -u)
+    [ -n "$CONTAINERS" ] && podman rm -f $CONTAINERS || true
+  become: true
+
+- name: 残存する Ceph OSD loop デバイスおよび RBD デバイスを解放
+  ansible.builtin.shell: |
+    sync
+    # 残存 RBD デバイスを強制 unmap
+    for d in /sys/bus/rbd/devices/*; do
+      if [ -d "$d" ]; then
+        dev_id=$(basename "$d")
+        echo "$dev_id force" > /sys/bus/rbd/remove_single_major 2>/dev/null || echo "$dev_id" > /sys/bus/rbd/remove 2>/dev/null || true
+      fi
+    done
+    # 固定 loop デバイス (ノード数連動) の解放
+    for l in $(seq 50 $(( 50 + {{ agents | default(3) }} - 1 ))); do
+      if losetup /dev/loop$l 2>/dev/null; then
+        losetup -d /dev/loop$l 2>/dev/null || true
+      fi
+    done
+    # ceph-disk / disk.img / kubernetes.io に関連付けられた loop デバイスを動的解放
+    for dev in $(losetup -a 2>/dev/null | grep -E "ceph-disk|disk\.img|kubernetes\.io" | cut -d: -f1); do
+      [ -n "$dev" ] && losetup -d "$dev" 2>/dev/null || true
+    done
+    if losetup -a 2>/dev/null | grep -qE "ceph-disk|disk\.img"; then
+      losetup -D 2>/dev/null || true
+    fi
+    # 未使用の余分な /dev/loop デバイスノードを削除
+    for dev in /dev/loop[0-9]*; do
+      if [ -e "$dev" ] && ! losetup -a 2>/dev/null | grep -q "^${dev}:"; then
+        rm -f "$dev" 2>/dev/null || true
+      fi
+    done
+  become: true
+  failed_when: false
+  changed_when: false
+
+- name: 残存する k3d-tools コンテナを強制削除
+  ansible.builtin.shell: >
+    TOOLS=$(podman ps -a --filter "name=k3d-.*-tools" --format "{{ '{{' }}.ID{{ '}}' }}")
+    [ -n "$TOOLS" ] && podman rm -f $TOOLS || true
+  become: true
+
+- name: 残存する k3d ボリュームを削除
+  ansible.builtin.shell: >
+    VOLUMES=$(podman volume ls --filter "name=k3d-{{ cluster_name }}" --format "{{ '{{' }}.Name{{ '}}' }}" | sort -u)
+    [ -n "$VOLUMES" ] && podman volume rm -f $VOLUMES || true
+  become: true
+
+- name: 残存する k3d 関連ネットワークを削除
+  ansible.builtin.shell: >
+    NETWORKS=$(podman network ls --filter "label=app=k3d" --format "{{ '{{' }}.Name{{ '}}' }}")
+    [ -n "$NETWORKS" ] && podman network rm $NETWORKS || true
+  become: true
+
+- name: Podman ネットワーク ({{ podman_network }}) を削除
+  ansible.builtin.command: "podman network rm {{ podman_network }}"
+  failed_when: false
+  become: true
+
+- name: ユーザーおよび root の ~/.kube/config から停止クラスタのコンテキストをクリーンアップ
+  ansible.builtin.shell: |
+    for conf in "{{ user_kubeconfig | default(user_home ~ '/.kube/config') }}" "/root/.kube/config"; do
+      if [ -f "$conf" ]; then
+        KUBECONFIG="$conf" kubectl config delete-context "k3d-{{ cluster_name }}" 2>/dev/null || true
+        KUBECONFIG="$conf" kubectl config delete-cluster "k3d-{{ cluster_name }}" 2>/dev/null || true
+      fi
+    done
+  failed_when: false
+  changed_when: false
+
+- name: dnsmasq レコードファイルを削除
+  ansible.builtin.file:
+    path: /etc/NetworkManager/dnsmasq.d/rancher.conf
+    state: absent
+  become: true
+
+- name: NetworkManager dnsmasq モード設定ファイルを削除
+  ansible.builtin.file:
+    path: /etc/NetworkManager/conf.d/00-use-dnsmasq.conf
+    state: absent
+  become: true
+
+- name: NetworkManager を再起動
+  ansible.builtin.systemd:
+    name: NetworkManager
+    state: restarted
+  become: true
+  failed_when: false
+
+- name: ホスト OS から K3D ルート CA 証明書の登録を解除
+  ansible.builtin.command: "{{ playbook_dir }}/../../trust-ca.sh --delete"
+  failed_when: false
+  changed_when: false
+
+- name: クラスタ停止・クリーンアップ完了サマリー
+  ansible.builtin.debug:
+    msg: "K3D クラスタ '{{ cluster_name }}' の停止・クリーンアップが正常に完了しました。"

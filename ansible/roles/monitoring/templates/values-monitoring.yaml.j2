@@ -1,0 +1,316 @@
+prometheus:
+  prometheusSpec:
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    replicas: {{ prometheus_replicas | default(1) }}
+    podAntiAffinity: "soft"
+    podAntiAffinityTopologyKey: kubernetes.io/hostname
+    # 親 (Prometheus Operator) と同じノードへ集約 (chart の podAntiAffinity "soft" と併用)
+    affinity:
+      podAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - kube-prometheus-stack-operator
+              topologyKey: kubernetes.io/hostname
+    enableOTLPReceiver: true
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    podMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector: {}
+    ruleNamespaceSelector: {}
+    resources:
+      requests:
+        cpu: {{ prometheus_cpu_request | default('500m') }}
+        memory: {{ prometheus_memory_request | default('1Gi') }}
+      limits:
+        cpu: {{ prometheus_cpu_limit | default('4000m') }}
+        memory: {{ prometheus_memory_limit | default('4Gi') }}
+    retention: {{ prometheus_retention | default('7d') }}
+    scrapeInterval: {{ prometheus_scrape_interval | default('30s') }}
+    evaluationInterval: {{ prometheus_evaluation_interval | default('60s') }}
+    maximumStartupDurationSeconds: 900
+    containers:
+      - name: prometheus
+        livenessProbe:
+          httpGet:
+            path: /-/healthy
+            port: http-web
+            scheme: HTTP
+          timeoutSeconds: 10
+          periodSeconds: 15
+          failureThreshold: 10
+        readinessProbe:
+          httpGet:
+            path: /-/ready
+            port: http-web
+            scheme: HTTP
+          timeoutSeconds: 10
+          periodSeconds: 10
+          failureThreshold: 6
+
+    additionalScrapeConfigs:
+      - job_name: 'kubernetes-pods'
+        scrape_interval: 30s
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: pod
+      - job_name: 'kubernetes-services'
+        scrape_interval: 30s
+        kubernetes_sd_configs:
+          - role: service
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          - action: labelmap
+            regex: __meta_kubernetes_service_label_(.+)
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: namespace
+          - source_labels: [__meta_kubernetes_service_name]
+            action: replace
+            target_label: service
+
+grafana:
+  enabled: true
+  replicas: {{ grafana_replicas | default(1) }}
+  adminPassword: "{{ grafana_admin_password }}"
+  shadowBundledPlugins: true
+  assertNoLeakedSecrets: false
+  plugins:
+    - grafana-postgresql-datasource
+
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - kube-prometheus-stack-operator
+            topologyKey: kubernetes.io/hostname
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/name
+                  operator: In
+                  values:
+                    - grafana
+            topologyKey: kubernetes.io/hostname
+
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL
+      folder: /tmp/dashboards
+      folderAnnotation: k8s-sidecar-target-directory
+      provider:
+        allowUiUpdates: true
+        foldersFromFilesStructure: true
+        disableDelete: true
+
+  grafana.ini:
+    database:
+      type: postgres
+      host: {{ keycloak_pg_internal_host }}:{{ postgres_port | default(5432) }}
+      name: grafana
+      user: grafana
+      password: "{{ grafana_db_password | default('grafana-db-2026') }}"
+      ssl_mode: disable
+      max_open_conn: {{ grafana_db_max_open_conn | default(20) }}
+      max_idle_conn: {{ grafana_db_max_idle_conn | default(10) }}
+    server:
+      domain: "{{ grafana_hostname }}"
+      root_url: "https://{{ grafana_hostname }}/"
+      serve_from_sub_path: true
+    auth.generic_oauth:
+      enabled: true
+      name: Keycloak
+      client_id: grafana
+      client_secret: "{{ grafana_client_secret }}"
+      scopes: openid profile email
+      auth_url: "https://{{ keycloak_hostname }}/realms/master/protocol/openid-connect/auth"
+      token_url: "{{ keycloak_internal_url | default('http://keycloak-keycloak.' ~ (keycloak_namespace | default('keycloak')) ~ '.svc.cluster.local:8080') }}/realms/master/protocol/openid-connect/token"
+      api_url: "{{ keycloak_internal_url | default('http://keycloak-keycloak.' ~ (keycloak_namespace | default('keycloak')) ~ '.svc.cluster.local:8080') }}/realms/master/protocol/openid-connect/userinfo"
+      role_attribute_path: "contains(groups[*], '{{ admin_group_name }}') ? 'Admin' : 'Viewer'"
+      allow_assign_grafana_admin: true
+      skip_org_role_sync: false
+      use_pkce: true
+    security:
+      allow_embedding: true
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+    date_formats:
+      default_timezone: Asia/Tokyo
+    users:
+      default_language: ja-JP
+    feature_toggles:
+      enable: grafanaAdvisor
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    nodeSelector:
+      node-role.kubernetes.io/control-plane: "true"
+    replicas: {{ alertmanager_replicas | default(1) }}
+    podAntiAffinity: "soft"
+    podAntiAffinityTopologyKey: kubernetes.io/hostname
+    # 親 (Prometheus Operator) と同じノードへ集約 (chart の podAntiAffinity "soft" と併用)
+    affinity:
+      podAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - kube-prometheus-stack-operator
+              topologyKey: kubernetes.io/hostname
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 256Mi
+    retention: 120h
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ['namespace', 'alertname']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: 'default-receiver'
+      routes:
+        - matchers:
+            - alertname = "Watchdog"
+          receiver: 'null'
+    receivers:
+      - name: 'default-receiver'
+      - name: 'null'
+    inhibit_rules:
+      - source_matchers:
+          - severity = "critical"
+        target_matchers:
+          - severity = "warning"
+        equal: ['alertname', 'namespace']
+
+
+kubelet:
+  enabled: true
+  serviceMonitor:
+    interval: {{ prometheus_scrape_interval | default('30s') }}
+    cAdvisorInterval: 60s
+    resourceInterval: 60s
+
+kubeStateMetrics:
+  enabled: true
+  serviceMonitor:
+    interval: {{ prometheus_scrape_interval | default('30s') }}
+
+nodeExporter:
+  enabled: true
+  serviceMonitor:
+    interval: {{ prometheus_scrape_interval | default('30s') }}
+
+kube-state-metrics:
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+
+# CoreDNS の ServiceMonitor は service-monitors.yaml.j2 にて kube-system/kube-dns を対象に明示管理
+coreDns:
+  enabled: false
+
+prometheusOperator:
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: "true"
+  admissionWebhooks:
+    enabled: true
+    failurePolicy: Ignore
+    certManager:
+      enabled: true
+    patch:
+      enabled: false
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app
+                  operator: In
+                  values:
+                    - kube-prometheus-stack-operator
+            topologyKey: kubernetes.io/hostname
+  resources:
+    requests:
+      cpu: 200m
+      memory: 256Mi
+
+kubeControllerManager:
+  enabled: false
+
+kubeScheduler:
+  enabled: false
+
+kubeProxy:
+  enabled: false
+
+kubeEtcd:
+  enabled: false

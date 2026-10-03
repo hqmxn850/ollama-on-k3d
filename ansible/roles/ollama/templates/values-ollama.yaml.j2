@@ -1,0 +1,104 @@
+# ==============================================================================
+# Ollama Helm Values Template
+# ==============================================================================
+
+replicaCount: {{ ollama_replicas | default(1) }}
+
+image:
+  repository: {{ ollama_image_repository | default('docker.io/ollama/ollama') }}
+  tag: {{ ollama_image_tag | default('0.34.4-rocm') | quote }}
+  pullPolicy: IfNotPresent
+
+ollama:
+  port: {{ ollama_port | default(11434) }}
+  gpu:
+    enabled: {{ ollama_gpu_enabled | default(true) | bool | lower }}
+    type: {{ ollama_gpu_type | default('amd') | quote }}
+    number: {{ ollama_gpu_number | default(1) }}
+
+persistentVolume:
+  enabled: {{ ollama_persistence_enabled | default(true) | bool | lower }}
+  storageClass: {{ ollama_storage_class | default('local-path') | quote }}
+  size: {{ ollama_storage_size | default('30Gi') | quote }}
+  accessModes:
+    - ReadWriteOnce
+
+nodeSelector:
+  node-role.kubernetes.io/worker: "true"
+
+ingress:
+  enabled: true
+  className: "traefik"
+  annotations:
+    cert-manager.io/cluster-issuer: "{{ cluster_issuer_name | default('internal-ca-issuer') }}"
+  hosts:
+    - host: {{ ollama_hostname }}
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: ollama-tls
+      hosts:
+        - {{ ollama_hostname }}
+
+resources:
+  requests:
+    cpu: {{ ollama_cpu_request | default('500m') | quote }}
+    memory: {{ ollama_memory_request | default('2Gi') | quote }}
+  limits:
+    memory: {{ ollama_memory_limit | default('16Gi') | quote }}
+
+livenessProbe:
+  enabled: true
+  path: {{ ollama_probe_path | default('/api/tags') | quote }}
+  initialDelaySeconds: {{ ollama_liveness_delay_seconds | default(60) }}
+  periodSeconds: {{ ollama_liveness_period_seconds | default(15) }}
+  timeoutSeconds: {{ ollama_liveness_timeout_seconds | default(5) }}
+  failureThreshold: {{ ollama_liveness_failure_threshold | default(6) }}
+
+readinessProbe:
+  enabled: true
+  path: {{ ollama_probe_path | default('/api/tags') | quote }}
+  initialDelaySeconds: {{ ollama_readiness_delay_seconds | default(30) }}
+  periodSeconds: {{ ollama_readiness_period_seconds | default(10) }}
+  timeoutSeconds: {{ ollama_readiness_timeout_seconds | default(5) }}
+  failureThreshold: {{ ollama_readiness_failure_threshold | default(3) }}
+
+initContainers:
+  - name: setup-llama-server-wrapper
+    image: {{ ollama_image_repository | default('docker.io/ollama/ollama') }}:{{ ollama_image_tag | default('0.34.4-rocm') }}
+    command: ['/bin/bash', '-c']
+    args:
+      - |
+        cp -p /lib/ollama/llama-server /wrapper/llama-server.real
+        cat << 'EOF' > /wrapper/llama-server
+        #!/bin/bash
+        args=()
+        while [ $# -gt 0 ]; do
+          if [ "$1" = "--load-mode" ] && [ "$2" = "dio" ]; then
+            args+=("--load-mode" "none")
+            shift 2
+          else
+            args+=("$1")
+            shift
+          fi
+        done
+        exec /lib/ollama/llama-server.real "${args[@]}"
+        EOF
+        chmod +x /wrapper/llama-server
+    volumeMounts:
+      - name: llama-server-wrapper
+        mountPath: /wrapper
+
+volumes:
+  - name: llama-server-wrapper
+    emptyDir: {}
+
+volumeMounts:
+  - name: llama-server-wrapper
+    mountPath: /lib/ollama/llama-server
+    subPath: llama-server
+  - name: llama-server-wrapper
+    mountPath: /lib/ollama/llama-server.real
+    subPath: llama-server.real
+

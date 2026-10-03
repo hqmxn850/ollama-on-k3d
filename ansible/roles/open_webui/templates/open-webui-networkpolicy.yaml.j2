@@ -1,0 +1,89 @@
+---
+# ==========================================================
+# Application Plane Protection NetworkPolicy: Open WebUI
+# ==========================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: open-webui-app-protection
+  namespace: {{ open_webui_namespace | default('open-webui') }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # 1. 同一名前空間内の通信
+    - from:
+        - podSelector: {}
+
+    # 2. Traefik Ingress (kube-system) からの Web UI アクセス
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ kube_system_namespace | default('kube-system') }}
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: {{ open_webui_port | default(8080) }}
+
+    # 3. クラスタ内部クライアントからのアクセス許可
+    - ports:
+        - protocol: TCP
+          port: {{ open_webui_port | default(8080) }}
+
+  egress:
+    # 1. DNS 名前解決 (CoreDNS)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ kube_system_namespace | default('kube-system') }}
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # 2. 同一名前空間内の通信
+    - to:
+        - podSelector: {}
+
+    # 3. クラスタ内部サービス通信 (Ollama, OGA, Keycloak)
+    - ports:
+        - protocol: TCP
+          port: {{ ollama_port | default(11434) }}
+        - protocol: TCP
+          port: {{ oga_port | default(8000) }}
+        - protocol: TCP
+          port: {{ keycloak_http_port | default(8080) }}
+        - protocol: TCP
+          port: {{ https_port | default(443) }}
+        - protocol: TCP
+          port: {{ http_port | default(80) }}
+
+    # 4. Traefik Ingress / ロードバランサー通信
+    - to:
+        - ipBlock:
+            cidr: {{ podman_network_cidr | default('10.89.0.0/24') }}
+      ports:
+        - protocol: TCP
+          port: {{ http_port | default(80) }}
+        - protocol: TCP
+          port: {{ https_port | default(443) }}
+
+    # 5. 外部通信 (モデル検索・Web検索・RAG用外部接続)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - {{ podman_network_cidr | default('10.89.0.0/24') }}
+      ports:
+        - protocol: TCP
+          port: {{ http_port | default(80) }}
+        - protocol: TCP
+          port: {{ https_port | default(443) }}
