@@ -101,7 +101,7 @@
 | `OLLAMA_PORT` | Ollama API 待受ポート | `11434` |
 | `OLLAMA_STORAGE_SIZE` | Ollama モデル保存用 PVC 容量 | `30Gi` |
 | `OLLAMA_STORAGE_CLASS` | Ollama モデル保存用 StorageClass | `local-path` |
-| `OLLAMA_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `FieldMouse-AI/qwen3.8:27B` |
+| `OLLAMA_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `qwen3.8:27b` |
 | `OLLAMA_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
 | `OLLAMA_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Ollama 接続リトライ回数 | `30` |
 | `OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
