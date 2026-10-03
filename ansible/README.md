@@ -72,7 +72,7 @@ ansible-playbook playbooks/teardown.yml
   - Server (8コア: 0-7) / Worker (24コア: 8-31) の CPU 制限適用とノードラベリング
   - kubeconfig の配置 (`~/.kube/config`)
 - **Phase 2: 認証基盤プロビジョニング (`storage_auth.yml`)**
-  - Keycloak PostgreSQL (repmgr streaming replication, NetworkPolicy プライベート保護)
+  - Keycloak PostgreSQL (単一インスタンス, NetworkPolicy プライベート保護)
   - Keycloak SSO 認証基盤 & pgAdmin 4
 - **Phase 3: アプリケーション・AI・監視基盤プロビジョニング (`apps.yml`)**
   - Rancher (cert-manager & Rancher Manager, UI 完全日本語化)

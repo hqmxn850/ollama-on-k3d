@@ -42,18 +42,17 @@ options:
       - arg: "--kubelet-arg=system-reserved=cpu=200m,memory=512Mi"
         nodeFilters:
           - "all"
-      - arg: "--node-label=node-role.kubernetes.io/control-plane=true"
-        nodeFilters:
-          - server:*
+      # NOTE: kubelet の --node-label には kubernetes.io / k8s.io ドメインの
+      #       ラベル (node-role.kubernetes.io/* 含む) を指定できない。
+      #       指定すると kubelet 起動時検証エラーでノード全体が停止するため、
+      #       node-role.kubernetes.io/* は API サーバー経由
+      #       (roles/k3d_cluster/tasks/main.yml のラベル付与タスク) で付与する。
       - arg: "--node-label=tier=core"
         nodeFilters:
           - server:*
       - arg: "--node-label=role=control-plane"
         nodeFilters:
           - server:*
-      - arg: "--node-label=node-role.kubernetes.io/worker=true"
-        nodeFilters:
-          - agent:*
       - arg: "--node-label=tier=ai"
         nodeFilters:
           - agent:*

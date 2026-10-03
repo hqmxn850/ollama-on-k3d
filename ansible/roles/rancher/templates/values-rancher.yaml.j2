@@ -23,53 +23,9 @@ webhook:
                   values:
                     - rancher
             topologyKey: kubernetes.io/hostname
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app.kubernetes.io/name
-                  operator: In
-                  values:
-                    - rancher-webhook
-            topologyKey: kubernetes.io/hostname
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                    - rancher-webhook
-            topologyKey: kubernetes.io/hostname
 
 nodeSelector:
   node-role.kubernetes.io/control-plane: "true"
-
-affinity:
-  podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-              - key: app
-                operator: In
-                values:
-                  - rancher
-          topologyKey: kubernetes.io/hostname
-
-topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: kubernetes.io/hostname
-    whenUnsatisfiable: ScheduleAnyway
-    labelSelector:
-      matchExpressions:
-        - key: app
-          operator: In
-          values:
-            - rancher
 
 global:
   cattle:
@@ -77,15 +33,3 @@ global:
       enabled: false
   nodeSelector:
     node-role.kubernetes.io/control-plane: "true"
-  affinity:
-    podAntiAffinity:
-      preferredDuringSchedulingIgnoredDuringExecution:
-        - weight: 100
-          podAffinityTerm:
-            labelSelector:
-              matchExpressions:
-                - key: app
-                  operator: In
-                  values:
-                    - rancher
-            topologyKey: kubernetes.io/hostname

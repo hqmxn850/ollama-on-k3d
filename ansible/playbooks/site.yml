@@ -49,12 +49,12 @@
         - placement
       ansible.builtin.shell: |
         NSSEL='"node-role.kubernetes.io/control-plane":"true"'
-        kubectl patch deployment rancher-turtles-controller-manager -n {{ turtles_namespace }} --type merge -p '{"spec":{"replicas":{{ turtles_replicas | default(3) }},"template":{"spec":{"nodeSelector":{'"$NSSEL"'} }}}}' 2>/dev/null || true
+        kubectl patch deployment rancher-turtles-controller-manager -n {{ turtles_namespace }} --type merge -p '{"spec":{"replicas":{{ turtles_replicas | default(1) }},"template":{"spec":{"nodeSelector":{'"$NSSEL"'} }}}}' 2>/dev/null || true
         for i in $(seq 1 40); do
           kubectl get capiproviders.turtles-capi.cattle.io cluster-api -n {{ capi_namespace }} >/dev/null 2>&1 && break
           sleep 5
         done
-        kubectl patch capiproviders.turtles-capi.cattle.io cluster-api -n {{ capi_namespace }} --type merge -p '{"spec":{"deployment":{"replicas":{{ capi_replicas | default(3) }},"nodeSelector":{'"$NSSEL"'}}}}' 2>/dev/null || true
+        kubectl patch capiproviders.turtles-capi.cattle.io cluster-api -n {{ capi_namespace }} --type merge -p '{"spec":{"deployment":{"replicas":{{ capi_replicas | default(1) }},"nodeSelector":{'"$NSSEL"'}}}}' 2>/dev/null || true
         kubectl patch deployment system-upgrade-controller -n {{ rancher_namespace }} --type merge -p '{"spec":{"template":{"spec":{"nodeSelector":{'"$NSSEL"'}}}}}' 2>/dev/null || true
         kubectl patch deployment fleet-agent -n {{ fleet_local_namespace }} --type merge -p '{"spec":{"template":{"spec":{"nodeSelector":{'"$NSSEL"'}}}}}' 2>/dev/null || true
         sleep 3

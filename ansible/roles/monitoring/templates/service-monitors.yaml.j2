@@ -28,13 +28,13 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: postgresql-ha
-      app.kubernetes.io/component: postgresql
+      app.kubernetes.io/name: postgresql
+      app.kubernetes.io/component: metrics
   namespaceSelector:
     matchNames:
     - {{ keycloak_namespace | default('keycloak') }}
   endpoints:
-  - port: metrics
+  - port: http-metrics
     path: /metrics
     interval: 30s
 {% endif %}

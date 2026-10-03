@@ -11,7 +11,7 @@
 - **ハードウェアアクセラレーション対応**:
   - AMD GPU (ROCm: `/dev/kfd`, `/dev/dri`) および AMD NPU (XDNA: `/dev/accel`) をノードコンテナへパススルーし、K8s Device Plugin により Pod にリソースを透過的に提供。
 - **軽量・高効率な単一インスタンス構成**:
-  - HA (多重化)、Ceph、Harbor、KubeVirt、Backup/Restore 機能は排除し、軽量・シンプルな構成に特化。
+  - 多重化、Ceph、Harbor、KubeVirt、Backup/Restore 機能は排除し、軽量・シンプルな構成に特化。
   - ストレージは K3s 標準の `local-path` を全面採用。
 - **設定・URL・エンドポイントの一元管理 (Single Source of Truth)**:
   - `ansible/group_vars/all.yml` および `config.env` により、各サービス公開/内部 URL、名前空間、待機タイムアウト、リソース割当を完全変数化（ハードコード禁止）。

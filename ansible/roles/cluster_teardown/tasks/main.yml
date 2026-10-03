@@ -64,7 +64,7 @@
       fi
     done
     # 固定 loop デバイス (ノード数連動) の解放
-    for l in $(seq 50 $(( 50 + {{ agents | default(3) }} - 1 ))); do
+    for l in $(seq 50 $(( 50 + {{ agents | default(1) }} - 1 ))); do
       if losetup /dev/loop$l 2>/dev/null; then
         losetup -d /dev/loop$l 2>/dev/null || true
       fi

@@ -23,7 +23,7 @@
       - name: rancher-stable
         url: "{{ helm_repo_rancher_stable }}"
 
-- name: cert-manager をデプロイ / 更新 (HA 3 レプリカ)
+- name: cert-manager をデプロイ / 更新
   ansible.builtin.command: "helm upgrade --install cert-manager jetstack/cert-manager --namespace {{ cert_manager_namespace }} --version {{ cert_manager_chart_version }} --wait --timeout {{ extended_rollout_timeout }} -f -"
   args:
     stdin: "{{ lookup('template', 'values-cert-manager.yaml.j2') }}"
@@ -69,7 +69,7 @@
       --dry-run=client -o yaml | kubectl apply -f -
   changed_when: false
 
-- name: Rancher をデプロイ / 更新 (HA 3 レプリカ)
+- name: Rancher をデプロイ / 更新
   ansible.builtin.command: "helm upgrade --install rancher rancher-stable/rancher --namespace {{ rancher_namespace }} --version {{ rancher_chart_version }} -f -"
   args:
     stdin: "{{ lookup('template', 'values-rancher.yaml.j2') }}"

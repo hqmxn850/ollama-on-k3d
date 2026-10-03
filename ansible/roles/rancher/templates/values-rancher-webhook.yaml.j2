@@ -1,5 +1,5 @@
-# rancher-webhook HA 設定 (Helm values)
+# rancher-webhook 配置設定 (Helm values)
 # converge.yml の helm upgrade から --set を排除し、このファイル単一の正とする
-replicaCount: {{ webhook_replicas | default(3) }}
+replicaCount: {{ webhook_replicas | default(1) }}
 nodeSelector:
   node-role.kubernetes.io/control-plane: "true"

@@ -254,7 +254,10 @@ spec:
             limits:
               memory: {{ oga_memory_limit | default('16Gi') | quote }}
 {% if oga_gpu_enabled | default(true) | bool %}
-              amd.com/gpu: {{ oga_gpu_number | default(1) }}
+{# OGA は OnnxRuntime GenAI による NPU 推論用。単一 GPU を Ollama と奪い合わないよう
+   AMD NPU (XDNA, /dev/accel) リソースを要求する (リソース名は config.env の
+   AMD_NPU_RESOURCE_DOMAIN / AMD_NPU_DEVICE_NAME を Single Source of Truth とする) #}
+              {{ amd_npu_resource_domain | default('amd.com') }}/{{ amd_npu_device_name | default('npu') }}: {{ oga_gpu_number | default(1) }}
 {% endif %}
           volumeMounts:
             - name: models-volume

@@ -11,9 +11,9 @@ data:
     {
       "Servers": {
         "1": {
-          "Name": "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}",
+          "Name": "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}",
           "Group": "Keycloak",
-          "Host": "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}",
+          "Host": "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}",
           "Port": {{ postgres_port | default(5432) }},
           "MaintenanceDB": "postgres",
           "Username": "postgres",
@@ -22,31 +22,9 @@ data:
           "Shared": false
         },
         "2": {
-          "Name": "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}",
-          "Group": "Keycloak",
-          "Host": "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}",
-          "Port": {{ postgres_port | default(5432) }},
-          "MaintenanceDB": "postgres",
-          "Username": "postgres",
-          "SSLMode": "prefer",
-          "PassFile": ".pgpass",
-          "Shared": false
-        },
-        "3": {
-          "Name": "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}",
-          "Group": "Keycloak",
-          "Host": "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}",
-          "Port": {{ postgres_port | default(5432) }},
-          "MaintenanceDB": "postgres",
-          "Username": "postgres",
-          "SSLMode": "prefer",
-          "PassFile": ".pgpass",
-          "Shared": false
-        },
-        "4": {
           "Name": "grafana-postgresql",
           "Group": "Grafana",
-          "Host": "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}",
+          "Host": "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}",
           "Port": {{ postgres_port | default(5432) }},
           "MaintenanceDB": "grafana",
           "Username": "grafana",
@@ -56,10 +34,8 @@ data:
       }
     }
   pgpass: |
-    {{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
-    {{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
-    {{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
-    {{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    {{ keycloak_pg_host | default('keycloak-pg-postgresql') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
+    {{ keycloak_pg_host | default('keycloak-pg-postgresql') }}:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
     *:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
     *:{{ postgres_port | default(5432) }}:*:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
     *:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
@@ -254,7 +230,7 @@ data:
         except Exception:
             pass
 
-    # === PostgreSQL サーバー自動登録・同期 (Primary, Read-0, Read-1) ===
+    # === PostgreSQL サーバー自動登録・同期 (単一インスタンス) ===
     def _sync_servers(target_uid=None):
         import os, sqlite3
         db_path = '/var/lib/pgadmin/pgadmin4.db'
@@ -264,10 +240,8 @@ data:
             conn = sqlite3.connect(db_path)
             cur = conn.cursor()
             servers_def = [
-                ("{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", "Keycloak", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
-                ("{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}", "Keycloak", "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
-                ("{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}", "Keycloak", "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
-                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD)
+                ("{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", "Keycloak", "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
+                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD)
             ]
             conn_params = '{"passfile": ".pgpass", "sslmode": "prefer"}'
 
@@ -314,7 +288,7 @@ data:
                 cur.execute("DELETE FROM server WHERE user_id = ? AND name IN ('Keycloak PostgreSQL (Primary)', 'Keycloak PostgreSQL (Read Only)')", (u_id,))
 
             # 不要な共有サーバー設定の修正および sharedserver のクリーンアップ
-            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}', '{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}', '{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}', 'grafana-postgresql')")
+            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}', 'grafana-postgresql')")
             try:
                 cur.execute("DELETE FROM sharedserver")
             except Exception:
@@ -511,7 +485,7 @@ spec:
       nodeSelector:
         node-role.kubernetes.io/control-plane: "true"
       affinity:
-        # 親 (Keycloak / Keycloak PostgreSQL) と同じノードへ集約 + 多重化 Pod 分散
+        # 親 (Keycloak / Keycloak PostgreSQL) と同じノードへ集約
         podAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:
             - weight: 100
@@ -530,18 +504,7 @@ spec:
                     - key: app.kubernetes.io/name
                       operator: In
                       values:
-                        - postgresql-ha
-                topologyKey: kubernetes.io/hostname
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - weight: 100
-              podAffinityTerm:
-                labelSelector:
-                  matchExpressions:
-                    - key: app.kubernetes.io/name
-                      operator: In
-                      values:
-                        - pgadmin
+                        - postgresql
                 topologyKey: kubernetes.io/hostname
       containers:
       - name: pgadmin
@@ -710,7 +673,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app.kubernetes.io/name: postgresql-ha
+              app.kubernetes.io/name: postgresql
       ports:
         - protocol: TCP
           port: {{ postgres_port | default(5432) }}

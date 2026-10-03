@@ -308,7 +308,7 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
   # 形式: "Release名|Namespace|ChartRepo名"
   HELM_TARGETS=(
     "cert-manager|cert-manager|jetstack/cert-manager"
-    "keycloak-pg|keycloak|bitnami/postgresql-ha"
+    "keycloak-pg|keycloak|bitnami/postgresql"
     "keycloak|keycloak|helmforge/keycloak"
     "rancher|cattle-system|rancher-stable/rancher"
     "kube-prometheus-stack|cattle-monitoring-system|prometheus-community/kube-prometheus-stack"

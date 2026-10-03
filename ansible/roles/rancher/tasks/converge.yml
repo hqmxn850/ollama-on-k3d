@@ -1,11 +1,11 @@
 ---
 # ==========================================================
-# Rancher ロールアウト待機 & HA 構成 (Converge)
+# Rancher ロールアウト待機 & 配置収束 (Converge)
 # ==========================================================
 
-- name: Rancher のロールアウト完了を待機 (HA レプリカ収束ポーリング)
+- name: Rancher のロールアウト完了を待機 (レプリカ収束ポーリング)
   ansible.builtin.shell: |
-    DESIRED="{{ rancher_replicas | default(3) }}"
+    DESIRED="{{ rancher_replicas | default(1) }}"
     for i in $(seq 1 {{ rancher_ready_wait_steps }}); do
       READY=$(kubectl get deployment rancher -n {{ rancher_namespace }} -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
       READY=${READY:-0}
@@ -27,7 +27,7 @@
   retries: "{{ once_retry_count }}"
 
 
-# --- Rancher 派生コンポーネントの HA 化 (3多重 & Server ノード均等分散配置) ---
+# --- Rancher 派生コンポーネントの Server ノード配置 ---
 - name: rancher-webhook Deployment が作成されるまで待機
   ansible.builtin.shell: |
     for i in $(seq 1 {{ rancher_webhook_wait_steps }}); do
@@ -45,7 +45,7 @@
   retries: "{{ once_retry_count }}"
   changed_when: false
 
-- name: rancher-webhook を Helm レベルで 3 レプリカ & サーバーノード固定に更新
+- name: rancher-webhook を Helm values で更新 (レプリカ数 / サーバーノード配置)
   ansible.builtin.command: >
     helm upgrade rancher-webhook rancher-charts/rancher-webhook
     --namespace {{ rancher_namespace }}
@@ -56,7 +56,7 @@
   failed_when: false
   changed_when: false
 
-- name: rancher-webhook のロールアウト完了を待機 (HA 3 レプリカ)
+- name: rancher-webhook のロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status deployment/rancher-webhook -n {{ rancher_namespace }} --timeout={{ extended_rollout_timeout }}"
   changed_when: false
   failed_when: false
@@ -80,7 +80,7 @@
   retries: "{{ once_retry_count }}"
   changed_when: false
 
-- name: fleet 関連コンポーネントを Helm レベルで多重化 & サーバーノード固定に更新
+- name: fleet 関連コンポーネントを Helm values で更新 (レプリカ数 / サーバーノード配置)
   ansible.builtin.command: >
     helm upgrade fleet rancher-charts/fleet
     --namespace {{ fleet_namespace }}
@@ -91,27 +91,7 @@
   failed_when: false
   changed_when: false
 
-- name: fleet 関連コンポーネント (fleet-controller / gitjob / helmops) を 3 レプリカ & server ノード配置に設定
-  ansible.builtin.command: >
-    kubectl patch deployment fleet-controller gitjob helmops
-    -n {{ fleet_namespace }}
-    --type merge
-    -p '{
-      "spec": {
-        "replicas": {{ fleet_replicas | default(3) }},
-        "template": {
-          "spec": {
-            "nodeSelector": {
-              "node-role.kubernetes.io/control-plane": "true"
-            }
-          }
-        }
-      }
-    }'
-  failed_when: false
-  changed_when: false
-
-- name: fleet 関連コンポーネントのロールアウト完了を待機 (HA 3 レプリカ)
+- name: fleet 関連コンポーネントのロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status deployment/fleet-controller deployment/gitjob deployment/helmops -n {{ fleet_namespace }} --timeout={{ default_rollout_timeout }}"
   failed_when: false
   changed_when: false
@@ -164,10 +144,10 @@
   failed_when: false
   changed_when: false
 
-- name: fleet-agent への HA レプリカ数伝播を待機 (fleet-controller 経由)
+- name: fleet-agent へのレプリカ数伝播を待機 (fleet-controller 経由)
   ansible.builtin.command: "kubectl get deployment fleet-agent -n {{ fleet_local_namespace }} -o jsonpath={.spec.replicas}"
   register: fleet_agent_replicas
-  until: fleet_agent_replicas.stdout | trim | int == (fleet_replicas | default(3) | int)
+  until: fleet_agent_replicas.stdout | trim | int == (fleet_replicas | default(1) | int)
   retries: "{{ standard_retry_count | default(20) }}"
   delay: "{{ default_retry_delay | default(5) }}"
   failed_when: false
@@ -197,7 +177,7 @@
   failed_when: false
   changed_when: false
 
-- name: CAPI (Cluster API) コントローラーを 3 レプリカ & server ノード配置に設定 (CAPIProvider パッチ)
+- name: CAPI (Cluster API) コントローラーをサーバーノード配置に設定 (CAPIProvider パッチ)
   ansible.builtin.command: >
     kubectl patch capiproviders.turtles-capi.cattle.io cluster-api
     -n {{ capi_namespace }}
@@ -205,7 +185,7 @@
     -p '{
       "spec": {
         "deployment": {
-          "replicas": {{ capi_replicas | default(3) }},
+          "replicas": {{ capi_replicas | default(1) }},
           "nodeSelector": {
             "node-role.kubernetes.io/control-plane": "true"
           },
@@ -225,21 +205,7 @@
                 }
               ]
             },
-            "podAntiAffinity": {
-              "preferredDuringSchedulingIgnoredDuringExecution": [
-                {
-                  "weight": 100,
-                  "podAffinityTerm": {
-                    "labelSelector": {
-                      "matchExpressions": [
-                        {"key": "cluster.x-k8s.io/provider", "operator": "In", "values": ["cluster-api"]}
-                      ]
-                    },
-                    "topologyKey": "kubernetes.io/hostname"
-                  }
-                }
-              ]
-            }
+            "podAntiAffinity": null
           }
         }
       }
@@ -247,19 +213,19 @@
   failed_when: false
   changed_when: false
 
-- name: capi-controller-manager のロールアウト完了を待機 (HA 3 レプリカ)
+- name: capi-controller-manager のロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status deployment/capi-controller-manager -n {{ capi_namespace }} --timeout={{ default_rollout_timeout }}"
   failed_when: false
   changed_when: false
 
-- name: rancher-turtles-controller-manager を 3 レプリカ & 親 (Rancher) 同居・多重分散配置に設定
+- name: rancher-turtles-controller-manager をサーバーノード配置に設定 (Deployment パッチ)
   ansible.builtin.command: >
     kubectl patch deployment rancher-turtles-controller-manager
     -n {{ turtles_namespace }}
     --type merge
     -p '{
       "spec": {
-        "replicas": {{ turtles_replicas | default(3) }},
+        "replicas": {{ turtles_replicas | default(1) }},
         "template": {
           "spec": {
             "nodeSelector": {
@@ -281,21 +247,7 @@
                   }
                 ]
               },
-              "podAntiAffinity": {
-                "preferredDuringSchedulingIgnoredDuringExecution": [
-                  {
-                    "weight": 100,
-                    "podAffinityTerm": {
-                      "labelSelector": {
-                        "matchExpressions": [
-                          {"key": "control-plane", "operator": "In", "values": ["controller-manager"]}
-                        ]
-                      },
-                      "topologyKey": "kubernetes.io/hostname"
-                    }
-                  }
-                ]
-              }
+              "podAntiAffinity": null
             }
           }
         }
@@ -304,7 +256,7 @@
   failed_when: false
   changed_when: false
 
-- name: rancher-turtles-controller-manager のロールアウト完了を待機 (HA 3 レプリカ)
+- name: rancher-turtles-controller-manager のロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status deployment/rancher-turtles-controller-manager -n {{ turtles_namespace }} --timeout={{ default_rollout_timeout }}"
   failed_when: false
   changed_when: false

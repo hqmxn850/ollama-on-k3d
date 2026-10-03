@@ -100,7 +100,7 @@
 - **操作**: `kubectl get pods -A` で各名前空間の Pod 状態を確認。
 - **期待結果**:
   - `kube-system`: CoreDNS (1), Traefik (1), metrics-server (1), local-path (1) が Running
-  - `keycloak`: Keycloak (1), PostgreSQL (1), Pgpool (1), pgAdmin (1) が Running (Server ノード)
+  - `keycloak`: Keycloak (1), PostgreSQL (1), pgAdmin (1) が Running (Server ノード)
   - `ollama`: Ollama (1), Ollama Exporter (1) が Running (Worker ノード)
   - `open-webui`: Open WebUI (1) が Running (Worker ノード)
   - `cattle-system`: Rancher (1), Rancher Webhook (1) が Running (Server ノード)
@@ -139,7 +139,7 @@
 | テスト ID | 検証項目 | 前提条件 | 操作手順 | 期待結果 | 検証コマンド |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **TC-KC-01** | Keycloak OIDC Discovery | Keycloak 稼働中 | OpenID Configuration エンドポイントへアクセス | HTTP 200 および OIDC メタデータ JSON が返却されること | `curl -sk https://keycloak.philippines.com.ph/realms/master/.well-known/openid-configuration \| jq .issuer` |
-| **TC-KC-02** | PostgreSQL 稼働確認 | PostgreSQL 稼働中 | PostgreSQL 待受ポート 5432 へ疎通 | `pg_isready` が成功すること | `kubectl exec -n keycloak deployment/pgadmin -- pg_isready -h keycloak-pg-postgresql-ha-pgpool -p 5432` |
+| **TC-KC-02** | PostgreSQL 稼働確認 | PostgreSQL 稼働中 | PostgreSQL 待受ポート 5432 へ疎通 | `pg_isready` が成功すること | `kubectl -n keycloak exec statefulset/keycloak-pg-postgresql -c postgresql -- pg_isready -h keycloak-pg-postgresql -p 5432 -U keycloak -d keycloak` |
 | **TC-KC-03** | pgAdmin 4 自動ログイン | pgAdmin 稼働中 | `https://pgadmin.philippines.com.ph` へアクセス | Keycloak OIDC でシングルサインオンできること | ブラウザでアクセス |
 
 ### 4.3 監視スタック (Prometheus & Grafana)

@@ -43,7 +43,7 @@ _print_msg() {
   local msg="${prefix} $*"
   echo -e "$msg"
   if [ "$ORIG_STDOUT_IS_TTY" = false ] && [[ -c /dev/tty ]] && [ -w /dev/tty ]; then
-    echo -e "$msg" > /dev/tty 2>/dev/null || true
+    ( echo -e "$msg" > /dev/tty ) 2>/dev/null || true
   fi
 }
 
@@ -112,9 +112,12 @@ for cmd in podman k3d skopeo; do
 done
 
 # イメージ一覧ファイルの存在確認
+# images.txt は stop.sh / cluster_teardown 時に自動生成されるキャッシュ用ファイル
+# (gitignore 対象) のため、初回デプロイ時には存在しない。欠落時は事前インポートを
+# スキップし、デプロイを継続する。
 if [[ ! -f "$IMAGES_FILE" ]]; then
-  err "イメージ一覧ファイルが見つかりません: $IMAGES_FILE"
-  exit 1
+  warn "イメージ一覧ファイルが見つかりません。事前インポートをスキップします: $IMAGES_FILE"
+  exit 0
 fi
 
 # 残存する k3d-tools コンテナの安全な事前削除
@@ -400,7 +403,7 @@ for ((i = 0; i < TOTAL_TO_IMPORT; i += BATCH_SIZE)); do
   sudo k3d image import --cluster "${CLUSTER_NAME}" --mode direct "${CURRENT_BATCH[@]}" 2>&1 | iconv -c -t UTF-8 -f UTF-8 | while IFS= read -r line; do
     echo "$line"
     if [ "$ORIG_STDOUT_IS_TTY" = false ] && [[ -c /dev/tty ]] && [ -w /dev/tty ]; then
-      echo "    $line" > /dev/tty 2>/dev/null || true
+      ( echo "    $line" > /dev/tty ) 2>/dev/null || true
     fi
   done || local_status=$?
 
@@ -417,7 +420,7 @@ for ((i = 0; i < TOTAL_TO_IMPORT; i += BATCH_SIZE)); do
       sudo k3d image import --cluster "${CLUSTER_NAME}" --mode direct "$single_img" 2>&1 | iconv -c -t UTF-8 -f UTF-8 | while IFS= read -r line; do
         echo "$line"
         if [ "$ORIG_STDOUT_IS_TTY" = false ] && [[ -c /dev/tty ]] && [ -w /dev/tty ]; then
-          echo "    $line" > /dev/tty 2>/dev/null || true
+          ( echo "    $line" > /dev/tty ) 2>/dev/null || true
         fi
       done || single_status=$?
 

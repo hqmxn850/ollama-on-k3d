@@ -1,25 +1,24 @@
-# PostgreSQL HA (bitnami/postgresql-ha): repmgr streaming replication + Pgpool-II
-# - postgresql.replicaCount=3 (primary + standby x2, odd number for quorum)
-# - pgpool.replicaCount=3 (自動フェイルオーバー & 読み書き分散エンドポイント)
-# - アプリ接続は pgpool Service (keycloak-pg-postgresql-ha-pgpool) 経由
-postgresql:
-  replicaCount: {{ keycloak_pg_replica_count | default(1) }}
-  image:
-    repository: bitnamilegacy/postgresql-repmgr
+# PostgreSQL (bitnami/postgresql): 単一インスタンス構成
+# - primary.replicaCount は 1 固定 (単一インスタンス構成)
+# - アプリ接続は chart が作成する Service (keycloak-pg-postgresql) 経由
+image:
+  repository: bitnamilegacy/postgresql
+
+auth:
   postgresPassword: "{{ keycloak_pg_password }}"
   username: keycloak
   password: "{{ keycloak_db_password }}"
   database: keycloak
-  repmgrPassword: "{{ keycloak_repl_password }}"
+
+primary:
+  replicaCount: {{ keycloak_pg_replica_count | default(1) }}
   podSecurityContext:
     enabled: true
     fsGroup: 1001
   nodeSelector:
     node-role.kubernetes.io/control-plane: "true"
-  # 多重化 Pod (3 レプリカ) が同一ノードに重ならないよう分散
-  podAntiAffinityPreset: soft
-  extendedConf: |
-    # 接続制御 (pgpool 多重接続 + アプリ同時接続への安全枠)
+  extendedConfiguration: |
+    # 接続制御 (アプリ同時接続への安全枠)
     max_connections = {{ keycloak_pg_max_connections | default(200) }}
 
     # メモリ最適化
@@ -47,7 +46,7 @@ postgresql:
     max_parallel_maintenance_workers = {{ keycloak_pg_max_parallel_maintenance_workers | default(2) }}
 
     # 可観測性・統計・スロークエリ監視 (pg_stat_statements)
-    shared_preload_libraries = 'repmgr,pgaudit,pg_stat_statements'
+    shared_preload_libraries = 'pg_stat_statements'
     pg_stat_statements.track = all
     pg_stat_statements.max = 10000
     track_io_timing = on
@@ -55,6 +54,7 @@ postgresql:
     log_min_duration_statement = {{ keycloak_pg_log_min_duration_statement | default(1000) }}
     log_checkpoints = on
     log_lock_waits = on
+
   resources:
     requests:
       cpu: {{ keycloak_pg_cpu_request | default('250m') }}
@@ -63,40 +63,19 @@ postgresql:
       cpu: {{ keycloak_pg_cpu_limit | default('1000m') }}
       memory: {{ keycloak_pg_memory_limit | default('1536Mi') }}
 
-pgpool:
-  replicaCount: {{ keycloak_pgpool_replica_count | default(1) }}
-  image:
-    repository: bitnamilegacy/pgpool
-  adminPassword: "{{ keycloak_pgpool_admin_password }}"
-  # sr_check / health_check は backend に存在するロール (chart が初回 initdb で作成) と一致必須
-  srCheckUsername: sr_check_user
-  srCheckPassword: "{{ keycloak_pgpool_srcheck_password }}"
-  numInitChildren: {{ keycloak_pgpool_num_init_children | default(10) }}
-  maxPool: {{ keycloak_pgpool_max_pool | default(2) }}
-  customUsers:
-    usernames: "postgres;grafana"
-    passwords: "{{ keycloak_pg_password }};{{ grafana_db_password }}"
-  nodeSelector:
-    node-role.kubernetes.io/control-plane: "true"
-  # 多重化 Pod (3 レプリカ) が同一ノードに重ならないよう分散
-  podAntiAffinityPreset: soft
-  resources:
-    requests:
-      cpu: {{ keycloak_pgpool_cpu_request | default('50m') }}
-      memory: {{ keycloak_pgpool_memory_request | default('512Mi') }}
-    limits:
-      cpu: {{ keycloak_pgpool_cpu_limit | default('200m') }}
-      memory: {{ keycloak_pgpool_memory_limit | default('1024Mi') }}
+  persistence:
+    storageClass: {{ keycloak_pg_storage_class | default('local-path') }}
+    size: {{ keycloak_pg_storage_size | default('10Gi') }}
 
-# postgresql.extendedConf を conf.d へ配置するために必須
+# 読み取り専用レプリカは構築しない (単一インスタンス構成)
+readReplicas:
+  replicaCount: 0
+
+# postgresql.extendedConfiguration を conf.d へ配置するために必須
 volumePermissions:
   enabled: true
   image:
     repository: bitnamilegacy/os-shell
-
-persistence:
-  storageClass: local-path
-  size: 10Gi
 
 metrics:
   enabled: {{ keycloak_pg_metrics_enabled | default(true) | bool | lower }}

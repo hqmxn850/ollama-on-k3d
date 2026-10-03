@@ -8,7 +8,7 @@ echo "==> Installing system_stats extension on PostgreSQL cluster..."
 
 # PostgreSQL Pod が稼働しているノードを自動検出 (なければ k3d サーバーノード一覧)
 KEYCLOAK_NS="${KEYCLOAK_NAMESPACE:-keycloak}"
-PG_NODES=$(kubectl get pods -n "$KEYCLOAK_NS" -l 'app.kubernetes.io/name in (postgresql,postgresql-ha)' -o jsonpath='{.items[*].spec.nodeName}' 2>/dev/null || true)
+PG_NODES=$(kubectl get pods -n "$KEYCLOAK_NS" -l 'app.kubernetes.io/name=postgresql' -o jsonpath='{.items[*].spec.nodeName}' 2>/dev/null || true)
 if [ -n "$PG_NODES" ]; then
   NODES=$(echo "$PG_NODES" | tr ' ' '\n' | sort -u)
 else
@@ -92,12 +92,12 @@ echo "==> Activating system_stats extension in PostgreSQL databases..."
 KEYCLOAK_NS="${KEYCLOAK_NAMESPACE:-keycloak}"
 for db in postgres template1 keycloak grafana; do
   echo "    Activating system_stats on database: $db"
-  kubectl exec -n "$KEYCLOAK_NS" "${PG_PRIMARY_POD:-keycloak-pg-postgresql-ha-postgresql-0}" -c postgresql -- \
+  kubectl exec -n "$KEYCLOAK_NS" "${PG_PRIMARY_POD:-keycloak-pg-postgresql-0}" -c postgresql -- \
     env PGPASSWORD="${PGPASSWORD:-keycloak-pg-2026}" psql -U postgres -d "$db" -c "CREATE EXTENSION IF NOT EXISTS system_stats;" || true
 done
 
 echo "==> Granting monitor_system_stats role to application users..."
-kubectl exec -n "$KEYCLOAK_NS" "${PG_PRIMARY_POD:-keycloak-pg-postgresql-ha-postgresql-0}" -c postgresql -- \
+kubectl exec -n "$KEYCLOAK_NS" "${PG_PRIMARY_POD:-keycloak-pg-postgresql-0}" -c postgresql -- \
   env PGPASSWORD="${PGPASSWORD:-keycloak-pg-2026}" psql -U postgres -c "GRANT monitor_system_stats TO grafana, keycloak;" || true
 
 echo "==> system_stats extension installed and verified successfully!"

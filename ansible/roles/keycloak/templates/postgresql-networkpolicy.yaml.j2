@@ -3,7 +3,7 @@
 # PostgreSQL (Keycloak Backend) Private Protection NetworkPolicy
 # ==========================================================
 # 外部および認可外の名前空間からのアクセスを遮断し、
-# Keycloak アプリケーション、レプリケーション、および Grafana のみを許可
+# Keycloak アプリケーションおよび Grafana のみを許可
 
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -13,12 +13,12 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app.kubernetes.io/name: postgresql-ha
+      app.kubernetes.io/name: postgresql
   policyTypes:
     - Ingress
     - Egress
   ingress:
-    # 1. 同一名前空間内の通信 (Keycloak Pod からの接続、Primary/Replica 相互レプリケーション)
+    # 1. 同一名前空間内の通信 (Keycloak Pod からの接続)
     - from:
         - podSelector: {}
       ports:

@@ -76,13 +76,23 @@
 
 - name: Kubernetes ノードに機能別配置用ラベルを付与 (CORE/SSO/Monitoring -> Server, AI -> Worker)
   ansible.builtin.shell: |
-    # Server ノード用ラベル確実化
-    for node in $(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
-      kubectl label node "$node" tier=core role=control-plane --overwrite || true
+    # kubelet の --node-label では kubernetes.io ドメインラベル
+    # (node-role.kubernetes.io/*) を登録できないため (kubelet 起動時検証エラーで
+    # ノード全体が停止する)、ノード名ベースで API サーバー経由により付与する。
+    # Server ノード (k3d-<cluster>-server-*)
+    for node in $(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||' | grep -- '-server-'); do
+      kubectl label node "$node" \
+        node-role.kubernetes.io/control-plane=true \
+        node-role.kubernetes.io/worker- \
+        tier=core role=control-plane --overwrite || true
     done
-    # Worker ノード用ラベル確実化
-    for node in $(kubectl get nodes --no-headers 2>/dev/null | grep -v control-plane | awk '{print $1}'); do
-      kubectl label node "$node" node-role.kubernetes.io/worker=true tier=ai role=worker --overwrite || true
+    # Worker ノード (k3d-<cluster>-agent-*)
+    for node in $(kubectl get nodes -o name 2>/dev/null | sed 's|^node/||' | grep -- '-agent-'); do
+      kubectl label node "$node" \
+        node-role.kubernetes.io/worker=true \
+        node-role.kubernetes.io/agent=true \
+        node-role.kubernetes.io/control-plane- \
+        tier=ai role=worker --overwrite || true
     done
   become: true
   changed_when: false
@@ -179,6 +189,11 @@
       podman network disconnect "$NETWORK" "$NODE" 2>/dev/null || true
       podman network connect --ip "$WANT" "$NETWORK" "$NODE"
       podman start "$NODE" >/dev/null
+      # 固定 IP に変更すると serverlb (nginx) は旧 upstream IP を解消したまま
+      # 復旧しないため、nginx を再読み込みして upstream の DNS 解決を更新する
+      podman exec "k3d-{{ cluster_name }}-serverlb" nginx -s reload >/dev/null 2>&1 || \
+        podman restart "k3d-{{ cluster_name }}-serverlb" >/dev/null 2>&1 || true
+      sleep 3
       for _ in $(seq 1 {{ node_ready_wait_steps }}); do
         if kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
           break
@@ -251,6 +266,12 @@
       podman network disconnect "$NETWORK" "$NODE" 2>/dev/null || true
       podman network connect --ip "$WANT" "$NETWORK" "$NODE"
       podman start "$NODE" >/dev/null
+      case "$NODE" in
+        *-server-*)
+          # serverlb (nginx) の upstream 解決を更新し、kubectl 経由の疎通を維持する
+          podman exec "k3d-{{ cluster_name }}-serverlb" nginx -s reload >/dev/null 2>&1 || true
+          ;;
+      esac
       echo "restarted $NODE -> $WANT (sha=$TEMPLATE_SHA)"
       for _ in $(seq 1 {{ node_ready_wait_steps }}); do
         if kubectl get node "$NODE" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q True; then
@@ -314,9 +335,9 @@
     - pre_import_images
     - images
 
-# HA 化設定
-- name: CoreDNS を 3 レプリカにスケール
-  ansible.builtin.command: "kubectl scale deployment coredns -n {{ kube_system_namespace }} --replicas={{ servers | default(3) }}"
+# システムコンポーネント配置 (Server ノード)
+- name: CoreDNS をサーバーノード数に合わせてスケール
+  ansible.builtin.command: "kubectl scale deployment coredns -n {{ kube_system_namespace }} --replicas={{ servers | default(1) }}"
   register: scale_coredns
   changed_when: "'scaled' in scale_coredns.stdout"
   failed_when: false
@@ -327,14 +348,6 @@
     -p '{"spec":{"template":{"spec":{"nodeSelector":{"node-role.kubernetes.io/control-plane":"true"}}}}}'
   register: patch_coredns_node
   changed_when: "'patched' in patch_coredns_node.stdout"
-  failed_when: false
-
-- name: CoreDNS の PodAntiAffinity を設定
-  ansible.builtin.command: >
-    kubectl patch deployment coredns -n {{ kube_system_namespace }}
-    -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchExpressions":[{"key":"k8s-app","operator":"In","values":["kube-dns"]}]},"topologyKey":"kubernetes.io/hostname"}}]}}}}}}'
-  register: patch_coredns_affinity
-  changed_when: "'patched' in patch_coredns_affinity.stdout"
   failed_when: false
 
 - name: 全ノード数を計算
@@ -363,8 +376,8 @@
   delay: "{{ quick_retry_delay }}"
   changed_when: false
 
-- name: metrics-server を 3 レプリカにスケール
-  ansible.builtin.command: "kubectl scale deployment metrics-server -n {{ kube_system_namespace }} --replicas={{ servers | default(3) }}"
+- name: metrics-server をサーバーノード数に合わせてスケール
+  ansible.builtin.command: "kubectl scale deployment metrics-server -n {{ kube_system_namespace }} --replicas={{ servers | default(1) }}"
   register: scale_metrics
   changed_when: "'scaled' in scale_metrics.stdout"
   failed_when: false
@@ -377,15 +390,7 @@
   changed_when: "'patched' in patch_metrics_node.stdout"
   failed_when: false
 
-- name: metrics-server の PodAntiAffinity を設定
-  ansible.builtin.command: >
-    kubectl patch deployment metrics-server -n {{ kube_system_namespace }}
-    -p '{"spec":{"template":{"spec":{"affinity":{"podAntiAffinity":{"preferredDuringSchedulingIgnoredDuringExecution":[{"weight":100,"podAffinityTerm":{"labelSelector":{"matchExpressions":[{"key":"k8s-app","operator":"In","values":["metrics-server"]}]},"topologyKey":"kubernetes.io/hostname"}}]}}}}}}'
-  register: patch_metrics_affinity
-  changed_when: "'patched' in patch_metrics_affinity.stdout"
-  failed_when: false
-
-# Traefik の HA 構成 (replicas / nodeSelector / affinity / allowCrossNamespace) は
+# Traefik の設定 (replicas / nodeSelector / affinity / allowCrossNamespace) は
 # roles/k3d_cluster/templates/traefik-config.yaml.j2 (HelmChartConfig) が単一の正。
 # レプリカ数は traefik_replicas 変数 (config.env TRAEFIK_REPLICAS) で制御。
 # kubectl scale/patch による二重管理は廃止済み。

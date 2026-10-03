@@ -13,7 +13,7 @@
 - **ハードウェアアクセラレーション対応**:
   - AMD GPU (ROCm: `/dev/kfd`, `/dev/dri`) および AMD NPU (XDNA: `/dev/accel`) をノードコンテナへパススルーし、K8s Device Plugin により透過的に提供。
 - **軽量・単一インスタンス構成**:
-  - HA、Ceph、Harbor、KubeVirt、Backup/Restore を排除し、軽量・シンプルな構成に特化。
+  - Ceph、Harbor、KubeVirt、Backup/Restore を排除し、軽量・シンプルな構成に特化。
   - ストレージは K3s 標準の `local-path` を全面採用。
 - **完全日本語化対応**:
   - Open WebUI、Rancher UI、Grafana、ドキュメントの完全日本語化。

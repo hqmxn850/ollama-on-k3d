@@ -103,7 +103,7 @@ k8s_metrics_proxy_port: "{{ lookup('env', 'K8S_METRICS_PROXY_PORT') | default(10
 disable_traefik: "{{ lookup('env', 'DISABLE_TRAEFIK') | default(false, true) | bool }}"
 kubelet_user_namespace: "{{ lookup('env', 'KUBELET_USER_NAMESPACE') | default(true, true) | bool }}"
 
-# 単一レプリカ・リソース設定 (HA 縮退構成)
+# 単一レプリカ・リソース設定
 traefik_replicas: "{{ lookup('env', 'TRAEFIK_REPLICAS') | default(1, true) | int }}"
 traefik_pod_metrics_port: "{{ lookup('env', 'TRAEFIK_POD_METRICS_PORT') | default(8082, true) | int }}"
 webhook_replicas: "{{ lookup('env', 'WEBHOOK_REPLICAS') | default(1, true) | int }}"
@@ -121,6 +121,7 @@ traefik_admin_password: "{{ lookup('env', 'TRAEFIK_ADMIN_PASSWORD') | default('a
 traefik_client_secret: "{{ lookup('env', 'TRAEFIK_CLIENT_SECRET') | default('traefik-secret', true) }}"
 oauth2_proxy_image: "{{ lookup('env', 'OAUTH2_PROXY_IMAGE') | default('quay.io/oauth2-proxy/oauth2-proxy:v7.8.1', true) }}"
 oauth2_proxy_cookie_secret: "{{ lookup('env', 'OAUTH2_PROXY_COOKIE_SECRET') | default('k3d-traefik-sso-cookie-secret-32', true) }}"
+oauth2_proxy_replicas: "{{ lookup('env', 'OAUTH2_PROXY_REPLICAS') | default(1, true) | int }}"
 
 # 管理者グループ名 (Keycloak / Grafana / Open WebUI 共通)
 admin_group_name: "{{ lookup('env', 'ADMIN_GROUP_NAME') | default('rancher-admins', true) }}"
@@ -140,25 +141,16 @@ keycloak_hostname: "{{ lookup('env', 'KEYCLOAK_HOSTNAME') | default('keycloak.' 
 keycloak_admin_user: "{{ lookup('env', 'KEYCLOAK_ADMIN_USER') | default('admin', true) }}"
 keycloak_admin_password: "{{ lookup('env', 'KEYCLOAK_ADMIN_PASSWORD') | default('admin', true) }}"
 keycloak_replicas: "{{ lookup('env', 'KEYCLOAK_REPLICAS') | default(1, true) | int }}"
-keycloak_pg_chart_version: "{{ lookup('env', 'KEYCLOAK_PG_CHART_VERSION') | default('16.3.2', true) }}"
+keycloak_pg_chart_version: "{{ lookup('env', 'KEYCLOAK_PG_CHART_VERSION') | default('16.7.27', true) }}"
 keycloak_pg_replica_count: "{{ lookup('env', 'KEYCLOAK_PG_REPLICA_COUNT') | default(1, true) | int }}"
-keycloak_pgpool_replica_count: "{{ lookup('env', 'KEYCLOAK_PGPOOL_REPLICA_COUNT') | default(1, true) | int }}"
-keycloak_pgpool_host: "{{ lookup('env', 'KEYCLOAK_PGPOOL_HOST') | default('keycloak-pg-postgresql-ha-pgpool', true) }}"
-keycloak_pgpool_admin_password: "{{ lookup('env', 'KEYCLOAK_PGPOOL_ADMIN_PASSWORD') | default('pgpool-admin-2026', true) }}"
-keycloak_pgpool_srcheck_password: "{{ lookup('env', 'KEYCLOAK_PGPOOL_SRCHECK_PASSWORD') | default('pgpool-srcheck-2026', true) }}"
-keycloak_pgpool_num_init_children: "{{ lookup('env', 'KEYCLOAK_PGPOOL_NUM_INIT_CHILDREN') | default(30, true) | int }}"
-keycloak_pgpool_max_pool: "{{ lookup('env', 'KEYCLOAK_PGPOOL_MAX_POOL') | default(2, true) | int }}"
-keycloak_pgpool_memory_request: "{{ lookup('env', 'KEYCLOAK_PGPOOL_MEMORY_REQUEST') | default('512Mi', true) }}"
-keycloak_pgpool_memory_limit: "{{ lookup('env', 'KEYCLOAK_PGPOOL_MEMORY_LIMIT') | default('1024Mi', true) }}"
 keycloak_pg_max_connections: "{{ lookup('env', 'KEYCLOAK_PG_MAX_CONNECTIONS') | default(200, true) | int }}"
-keycloak_pg_primary_pod: "{{ lookup('env', 'KEYCLOAK_PG_PRIMARY_POD') | default('keycloak-pg-postgresql-ha-postgresql-0', true) }}"
-keycloak_pg_read_pod_0: "{{ lookup('env', 'KEYCLOAK_PG_READ_POD_0') | default('keycloak-pg-postgresql-ha-postgresql-0', true) }}"
-keycloak_pg_read_pod_1: "{{ lookup('env', 'KEYCLOAK_PG_READ_POD_1') | default('keycloak-pg-postgresql-ha-postgresql-1', true) }}"
-keycloak_pg_primary_host: "{{ lookup('env', 'KEYCLOAK_PG_PRIMARY_HOST') | default('keycloak-pg-postgresql-primary', true) }}"
+keycloak_pg_storage_class: "{{ lookup('env', 'KEYCLOAK_PG_STORAGE_CLASS') | default('local-path', true) }}"
+keycloak_pg_storage_size: "{{ lookup('env', 'KEYCLOAK_PG_STORAGE_SIZE') | default('10Gi', true) }}"
+keycloak_pg_primary_pod: "{{ lookup('env', 'KEYCLOAK_PG_PRIMARY_POD') | default('keycloak-pg-postgresql-0', true) }}"
+keycloak_pg_host: "{{ lookup('env', 'KEYCLOAK_PG_HOST') | default('keycloak-pg-postgresql', true) }}"
 keycloak_chart_version: "{{ lookup('env', 'KEYCLOAK_CHART_VERSION') | default('3.0.12', true) }}"
 keycloak_pg_password: "{{ lookup('env', 'KEYCLOAK_PG_PASSWORD') | default('keycloak-pg-2026', true) }}"
 keycloak_db_password: "{{ lookup('env', 'KEYCLOAK_DB_PASSWORD') | default('keycloak-db-2026', true) }}"
-keycloak_repl_password: "{{ lookup('env', 'KEYCLOAK_REPL_PASSWORD') | default('repl-pass-2026', true) }}"
 keycloak_pg_shared_buffers: "{{ lookup('env', 'KEYCLOAK_PG_SHARED_BUFFERS') | default('512MB', true) }}"
 keycloak_pg_effective_cache_size: "{{ lookup('env', 'KEYCLOAK_PG_EFFECTIVE_CACHE_SIZE') | default('1536MB', true) }}"
 keycloak_pg_work_mem: "{{ lookup('env', 'KEYCLOAK_PG_WORK_MEM') | default('16MB', true) }}"
@@ -392,7 +384,7 @@ quay_registry_endpoint: "{{ lookup('env', 'QUAY_REGISTRY_ENDPOINT') | default('h
 k8s_registry_endpoint: "{{ lookup('env', 'K8S_REGISTRY_ENDPOINT') | default('https://registry.k8s.io', true) }}"
 
 # 内部クラスタ内サービス接続エンドポイント (Single Source of Truth)
-keycloak_pg_internal_host: "keycloak-pg-postgresql-ha-pgpool.{{ keycloak_namespace }}.svc.cluster.local"
+keycloak_pg_internal_host: "{{ keycloak_pg_host }}.{{ keycloak_namespace }}.svc.cluster.local"
 keycloak_internal_service: "keycloak-keycloak.{{ keycloak_namespace }}.svc.cluster.local"
 keycloak_internal_url: "http://{{ keycloak_internal_service }}:{{ keycloak_http_port | default(8080) }}"
 prometheus_internal_service: "kube-prometheus-stack-prometheus.{{ monitoring_namespace }}.svc.cluster.local"

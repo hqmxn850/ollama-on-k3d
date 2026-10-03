@@ -9,42 +9,10 @@ data:
   postgresql.yaml: |
     apiVersion: 1
     datasources:
-      - name: keycloak-pg-postgresql-primary
+      - name: keycloak-pg-postgresql
         type: postgres
-        uid: keycloak-pg-postgresql-primary
-        url: {{ keycloak_pgpool_host | default('keycloak-pg-postgresql-ha-pgpool') }}.{{ keycloak_namespace | default('keycloak') }}.svc.cluster.local:{{ postgres_port | default(5432) }}
-        user: postgres
-        database: postgres
-        secureJsonData:
-          password: {{ keycloak_pg_password | default('keycloak-pg-2026') }}
-        jsonData:
-          sslmode: disable
-          postgresVersion: 1500
-          maxOpenConns: 10
-          maxIdleConns: 2
-          connMaxLifetime: 14400
-        isDefault: false
-
-      - name: keycloak-pg-postgresql-read-0
-        type: postgres
-        uid: keycloak-pg-postgresql-read-0
-        url: {{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}.{{ keycloak_namespace | default('keycloak') }}.svc.cluster.local:{{ postgres_port | default(5432) }}
-        user: postgres
-        database: postgres
-        secureJsonData:
-          password: {{ keycloak_pg_password | default('keycloak-pg-2026') }}
-        jsonData:
-          sslmode: disable
-          postgresVersion: 1500
-          maxOpenConns: 10
-          maxIdleConns: 2
-          connMaxLifetime: 14400
-        isDefault: false
-
-      - name: keycloak-pg-postgresql-read-1
-        type: postgres
-        uid: keycloak-pg-postgresql-read-1
-        url: {{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}.{{ keycloak_namespace | default('keycloak') }}.svc.cluster.local:{{ postgres_port | default(5432) }}
+        uid: keycloak-pg-postgresql
+        url: {{ keycloak_pg_internal_host }}:{{ postgres_port | default(5432) }}
         user: postgres
         database: postgres
         secureJsonData:
@@ -60,7 +28,7 @@ data:
       - name: PostgreSQL
         type: postgres
         uid: postgresql
-        url: {{ keycloak_pgpool_host | default('keycloak-pg-postgresql-ha-pgpool') }}.{{ keycloak_namespace | default('keycloak') }}.svc.cluster.local:{{ postgres_port | default(5432) }}
+        url: {{ keycloak_pg_internal_host }}:{{ postgres_port | default(5432) }}
         user: keycloak
         database: keycloak
         secureJsonData:

@@ -14,22 +14,18 @@
       - name: bitnami
         url: "{{ helm_repo_bitnami }}"
 
-- name: Keycloak PostgreSQL HA をデプロイ / 更新 (repmgr streaming replication + Pgpool-II)
-  ansible.builtin.command: "helm upgrade --install keycloak-pg bitnami/postgresql-ha --namespace {{ keycloak_namespace }} --version {{ keycloak_pg_chart_version }} -f -"
+- name: Keycloak PostgreSQL をデプロイ / 更新 (単一インスタンス)
+  ansible.builtin.command: "helm upgrade --install keycloak-pg bitnami/postgresql --namespace {{ keycloak_namespace }} --version {{ keycloak_pg_chart_version }} -f -"
   args:
     stdin: "{{ lookup('template', 'values-pg.yaml.j2') }}"
   register: deploy_pg
   changed_when: "'Release \"keycloak-pg\" has been upgraded' in deploy_pg.stdout or 'Release \"keycloak-pg\" does not exist' in deploy_pg.stdout"
 
 - name: Keycloak PostgreSQL (PostgreSQL StatefulSet) のロールアウト完了を待機
-  ansible.builtin.command: "kubectl rollout status statefulset/keycloak-pg-postgresql-ha-postgresql -n {{ keycloak_namespace }} --timeout={{ extended_rollout_timeout }}"
+  ansible.builtin.command: "kubectl rollout status statefulset/keycloak-pg-postgresql -n {{ keycloak_namespace }} --timeout={{ extended_rollout_timeout }}"
   changed_when: false
 
-- name: Keycloak PostgreSQL (Pgpool-II Deployment) のロールアウト完了を待機
-  ansible.builtin.command: "kubectl rollout status deployment/keycloak-pg-postgresql-ha-pgpool -n {{ keycloak_namespace }} --timeout={{ extended_rollout_timeout }}"
-  changed_when: false
-
-- name: Keycloak PostgreSQL クラスタに system_stats 拡張を配置・有効化
+- name: Keycloak PostgreSQL インスタンスに system_stats 拡張を配置・有効化
   ansible.builtin.command: "{{ role_path }}/files/install-system-stats.sh {{ cluster_name }} {{ role_path }}/files/extensions/system_stats"
   environment:
     PGPASSWORD: "{{ keycloak_pg_password | default('keycloak-pg-2026') }}"
@@ -37,13 +33,6 @@
   register: install_sys_stats
   changed_when: "'CREATE EXTENSION' in install_sys_stats.stdout"
   ignore_errors: true
-
-- name: Keycloak PostgreSQL 専用 Service 群 (Primary, Read-0, Read-1) を適用
-  ansible.builtin.command: "kubectl apply -f -"
-  args:
-    stdin: "{{ lookup('template', 'postgresql-services.yaml.j2') }}"
-  register: apply_pg_services
-  changed_when: "'created' in apply_pg_services.stdout or 'configured' in apply_pg_services.stdout"
 
 - name: Grafana 用 PostgreSQL ユーザーおよびデータベースを作成
   ansible.builtin.shell: |
@@ -105,7 +94,7 @@
   failed_when: false
 
 
-- name: Keycloak をデプロイ / 更新 (HA 3 レプリカ)
+- name: Keycloak をデプロイ / 更新
   ansible.builtin.command: "helm upgrade --install keycloak helmforge/keycloak --namespace {{ keycloak_namespace }} --version {{ keycloak_chart_version }} -f - --wait --timeout {{ extended_rollout_timeout }}"
   args:
     stdin: "{{ lookup('template', 'values.yaml.j2') }}"

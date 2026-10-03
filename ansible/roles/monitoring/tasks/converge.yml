@@ -7,11 +7,11 @@
   ansible.builtin.command: "kubectl rollout status deployment/kube-prometheus-stack-operator -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
   changed_when: false
 
-- name: Prometheus StatefulSet のロールアウト完了を待機 (HA 3 レプリカ)
+- name: Prometheus StatefulSet のロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status statefulset/prometheus-kube-prometheus-stack-prometheus -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
   changed_when: false
 
-- name: Alertmanager StatefulSet のロールアウト完了を待機 (HA 3 レプリカ)
+- name: Alertmanager StatefulSet のロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status statefulset/alertmanager-kube-prometheus-stack-alertmanager -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
   changed_when: false
 
@@ -42,7 +42,7 @@
   delay: "{{ standard_retry_delay }}"
   changed_when: "'Release \"rancher-monitoring-dashboards\" has been upgraded' in install_dashboards.stdout or 'Release \"rancher-monitoring-dashboards\" does not exist' in install_dashboards.stdout"
 
-- name: rancher-monitoring-dashboards-monitoring-proxy のロールアウト完了を待機 (HA 3 レプリカ)
+- name: rancher-monitoring-dashboards-monitoring-proxy のロールアウト完了を待機
   ansible.builtin.command: "kubectl rollout status deployment/rancher-monitoring-dashboards-monitoring-proxy -n {{ monitoring_namespace }} --timeout={{ extended_rollout_timeout }}"
   register: mon_proxy_rollout
   until: mon_proxy_rollout is success

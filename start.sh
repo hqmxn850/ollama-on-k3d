@@ -185,7 +185,6 @@ EXTRA_VARS=$(jq -n \
   --argjson keycloak_replicas "${KEYCLOAK_REPLICAS:-1}" \
   --arg keycloak_pg_password "${KEYCLOAK_PG_PASSWORD:-keycloak-pg-2026}" \
   --arg keycloak_db_password "${KEYCLOAK_DB_PASSWORD:-keycloak-db-2026}" \
-  --arg keycloak_repl_password "${KEYCLOAK_REPL_PASSWORD:-repl-pass-2026}" \
   --arg keycloak_pg_shared_buffers "${KEYCLOAK_PG_SHARED_BUFFERS:-512MB}" \
   --argjson keycloak_pg_metrics_enabled "${KEYCLOAK_PG_METRICS_ENABLED:-true}" \
   --arg keycloak_pg_memory_limit "${KEYCLOAK_PG_MEMORY_LIMIT:-1536Mi}" \
@@ -193,16 +192,8 @@ EXTRA_VARS=$(jq -n \
   --arg keycloak_pg_cpu_limit "${KEYCLOAK_PG_CPU_LIMIT:-1000m}" \
   --arg keycloak_pg_cpu_request "${KEYCLOAK_PG_CPU_REQUEST:-250m}" \
   --argjson keycloak_pg_replica_count "${KEYCLOAK_PG_REPLICA_COUNT:-1}" \
-  --argjson keycloak_pgpool_replica_count "${KEYCLOAK_PGPOOL_REPLICA_COUNT:-1}" \
-  --arg keycloak_pgpool_host "${KEYCLOAK_PGPOOL_HOST:-keycloak-pg-postgresql-ha-pgpool}" \
-  --arg keycloak_pgpool_admin_password "${KEYCLOAK_PGPOOL_ADMIN_PASSWORD:-pgpool-admin-2026}" \
-  --arg keycloak_pgpool_srcheck_password "${KEYCLOAK_PGPOOL_SRCHECK_PASSWORD:-pgpool-srcheck-2026}" \
-  --argjson keycloak_pgpool_num_init_children "${KEYCLOAK_PGPOOL_NUM_INIT_CHILDREN:-10}" \
-  --argjson keycloak_pgpool_max_pool "${KEYCLOAK_PGPOOL_MAX_POOL:-2}" \
   --argjson keycloak_pg_max_connections "${KEYCLOAK_PG_MAX_CONNECTIONS:-200}" \
-  --arg keycloak_pg_primary_pod "${KEYCLOAK_PG_PRIMARY_POD:-keycloak-pg-postgresql-ha-postgresql-0}" \
-  --arg keycloak_pg_read_pod_0 "${KEYCLOAK_PG_READ_POD_0:-keycloak-pg-postgresql-ha-postgresql-0}" \
-  --arg keycloak_pg_read_pod_1 "${KEYCLOAK_PG_READ_POD_1:-keycloak-pg-postgresql-ha-postgresql-1}" \
+  --arg keycloak_pg_primary_pod "${KEYCLOAK_PG_PRIMARY_POD:-keycloak-pg-postgresql-0}" \
   --argjson keycloak_events_enabled "${KEYCLOAK_EVENTS_ENABLED:-true}" \
   --argjson keycloak_events_expiration "${KEYCLOAK_EVENTS_EXPIRATION:-2592000}" \
   --argjson keycloak_admin_events_enabled "${KEYCLOAK_ADMIN_EVENTS_ENABLED:-true}" \
@@ -222,7 +213,7 @@ EXTRA_VARS=$(jq -n \
   --arg pgadmin_client_secret "${PGADMIN_CLIENT_SECRET:-pgadmin-secret}" \
   --arg pgadmin_log_level "${PGADMIN_LOG_LEVEL:-DEBUG}" \
   --arg cert_manager_chart_version "${CERT_MANAGER_CHART_VERSION:-v1.21.2}" \
-  --arg keycloak_pg_chart_version "${KEYCLOAK_PG_CHART_VERSION:-16.3.2}" \
+  --arg keycloak_pg_chart_version "${KEYCLOAK_PG_CHART_VERSION:-16.7.27}" \
   --arg keycloak_chart_version "${KEYCLOAK_CHART_VERSION:-3.0.12}" \
   --arg rancher_chart_version "${RANCHER_CHART_VERSION:-2.15.2}" \
   --arg kube_prometheus_stack_chart_version "${KUBE_PROMETHEUS_STACK_CHART_VERSION:-91.4.1}" \
@@ -404,7 +395,6 @@ EXTRA_VARS=$(jq -n \
     keycloak_replicas: $keycloak_replicas,
     keycloak_pg_password: $keycloak_pg_password,
     keycloak_db_password: $keycloak_db_password,
-    keycloak_repl_password: $keycloak_repl_password,
     keycloak_pg_shared_buffers: $keycloak_pg_shared_buffers,
     keycloak_pg_metrics_enabled: $keycloak_pg_metrics_enabled,
     keycloak_pg_memory_limit: $keycloak_pg_memory_limit,
@@ -412,12 +402,6 @@ EXTRA_VARS=$(jq -n \
     keycloak_pg_cpu_limit: $keycloak_pg_cpu_limit,
     keycloak_pg_cpu_request: $keycloak_pg_cpu_request,
     keycloak_pg_replica_count: $keycloak_pg_replica_count,
-    keycloak_pgpool_replica_count: $keycloak_pgpool_replica_count,
-    keycloak_pgpool_host: $keycloak_pgpool_host,
-    keycloak_pgpool_admin_password: $keycloak_pgpool_admin_password,
-    keycloak_pgpool_srcheck_password: $keycloak_pgpool_srcheck_password,
-    keycloak_pgpool_num_init_children: $keycloak_pgpool_num_init_children,
-    keycloak_pgpool_max_pool: $keycloak_pgpool_max_pool,
     keycloak_pg_max_connections: $keycloak_pg_max_connections,
     keycloak_pg_primary_pod: $keycloak_pg_primary_pod,
     keycloak_events_enabled: $keycloak_events_enabled,
@@ -659,7 +643,7 @@ cat << EOF
   Password:       ${KEYCLOAK_ADMIN_PASSWORD:-admin}
 
 【PostgreSQL】(Server ノード: 8コア)
-  Primary:        ${KEYCLOAK_PGPOOL_HOST:-keycloak-pg-postgresql-ha-pgpool}.${KEYCLOAK_NAMESPACE:-keycloak}.svc.cluster.local:${POSTGRES_PORT:-5432}
+  Primary:        ${KEYCLOAK_PG_HOST:-keycloak-pg-postgresql}.${KEYCLOAK_NAMESPACE:-keycloak}.svc.cluster.local:${POSTGRES_PORT:-5432}
   Admin User:     postgres
   Admin Password: ${KEYCLOAK_PG_PASSWORD:-keycloak-pg-2026}
   App User/DB:    keycloak / keycloak (${KEYCLOAK_DB_PASSWORD:-keycloak-db-2026})

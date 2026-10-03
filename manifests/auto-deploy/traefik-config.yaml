@@ -9,7 +9,7 @@ spec:
       podAnnotations:
         prometheus.io/port: "8082"
         prometheus.io/scrape: "true"
-      replicas: 3
+      replicas: 1
     providers:
       kubernetesIngress:
         publishedService:
