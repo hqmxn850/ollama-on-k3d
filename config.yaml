@@ -1,0 +1,139 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: ollama-cluster
+servers: 1
+agents: 1
+image: rancher/k3s:v1.36.5-k3s1
+network: k3d
+options:
+  k3d:
+    wait: true
+    timeout: "300s"
+    disableLoadbalancer: false
+    disableImageVolume: false
+  runtime:
+    gpuRequest: all
+  k3s:
+    extraArgs:
+      - arg: "--kubelet-arg=feature-gates=NodeSwap=true"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=feature-gates=MemoryQoS=true"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=fail-swap-on=false"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=runtime-request-timeout=15m"
+        nodeFilters:
+          - "all"
+      - arg: "--snapshotter=native"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=max-pods=250"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=kube-reserved=cpu=200m,memory=512Mi"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=system-reserved=cpu=200m,memory=512Mi"
+        nodeFilters:
+          - "all"
+      # NOTE: kubelet の --node-label には kubernetes.io / k8s.io ドメインの
+      #       ラベル (node-role.kubernetes.io/* 含む) を指定できない。
+      #       指定すると kubelet 起動時検証エラーでノード全体が停止するため、
+      #       node-role.kubernetes.io/* は API サーバー経由
+      #       (roles/k3d_cluster/tasks/main.yml のラベル付与タスク) で付与する。
+      - arg: "--node-label=tier=core"
+        nodeFilters:
+          - server:*
+      - arg: "--node-label=role=control-plane"
+        nodeFilters:
+          - server:*
+      - arg: "--node-label=tier=ai"
+        nodeFilters:
+          - agent:*
+      - arg: "--node-label=role=worker"
+        nodeFilters:
+          - agent:*
+      - arg: "--kube-apiserver-arg=max-requests-inflight=1000"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-apiserver-arg=max-mutating-requests-inflight=500"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-controller-manager-arg=node-cidr-mask-size=24"
+        nodeFilters:
+          - server:*
+      - arg: "--flannel-backend=host-gw"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-proxy-arg=proxy-mode=iptables"
+        nodeFilters:
+          - "all"
+      - arg: "--kube-proxy-arg=metrics-bind-address=0.0.0.0:10249"
+        nodeFilters:
+          - "all"
+      - arg: "--kube-controller-manager-arg=bind-address=0.0.0.0"
+        nodeFilters:
+          - server:*
+      - arg: "--kube-scheduler-arg=bind-address=0.0.0.0"
+        nodeFilters:
+          - server:*
+      - arg: "--selinux=false"
+        nodeFilters:
+          - "all"
+      - arg: "--kubelet-arg=feature-gates=KubeletInUserNamespace=true"
+        nodeFilters:
+          - server:*
+          - agent:*
+  kubeconfig:
+    updateDefaultKubeconfig: true
+    switchCurrentContext: true
+volumes:
+  - volume: /home/masashi/ai/projects/ollama-on-k3d/ansible/playbooks/../../manifests/auto-deploy:/var/lib/rancher/k3s/server/manifests/auto-deploy
+    nodeFilters:
+      - server:*
+  - volume: /home/masashi/ai/projects/ollama-on-k3d/ansible/playbooks/../../manifests/containerd.d:/var/lib/rancher/k3s/agent/etc/containerd/config-v3.toml.d:ro
+    nodeFilters:
+      - "all"
+  - volume: /lib/modules:/lib/modules:ro
+    nodeFilters:
+      - "all"
+  - volume: /run/udev:/run/udev:ro
+    nodeFilters:
+      - "all"
+  - volume: /dev/shm:/dev/shm
+    nodeFilters:
+      - "all"
+  - volume: /dev/kfd:/dev/kfd
+    nodeFilters:
+      - server:*
+      - agent:*
+  - volume: /dev/dri:/dev/dri
+    nodeFilters:
+      - server:*
+      - agent:*
+  - volume: /dev/accel:/dev/accel
+    nodeFilters:
+      - server:*
+      - agent:*
+
+registries:
+  config: |
+    mirrors:
+      "docker.io":
+        endpoint:
+          - "https://registry-1.docker.io"
+      "registry-1.docker.io":
+        endpoint:
+          - "https://registry-1.docker.io"
+      "quay.io":
+        endpoint:
+          - "https://quay.io"
+      "registry.k8s.io":
+        endpoint:
+          - "https://registry.k8s.io"
+
+  config_path: "/etc/rancher/k3s/registries.yaml"
