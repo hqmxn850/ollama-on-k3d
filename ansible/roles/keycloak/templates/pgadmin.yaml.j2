@@ -123,7 +123,6 @@ data:
 
     PG_PASSWORD = "{{ keycloak_pg_password | default('keycloak-pg-2026') }}"
     GRAFANA_PG_PASSWORD = "{{ grafana_db_password | default('grafana-db-2026') }}"
-    HARBOR_PG_PASSWORD = "{{ harbor_db_password | default('harbor-db-2026') }}"
 
     def _encrypt_password(pwd):
         try:
@@ -268,8 +267,7 @@ data:
                 ("{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", "Keycloak", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
                 ("{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}", "Keycloak", "{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
                 ("{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}", "Keycloak", "{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
-                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD),
-                ("harbor-postgresql", "Harbor", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "harbor", "harbor", HARBOR_PG_PASSWORD)
+                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD)
             ]
             conn_params = '{"passfile": ".pgpass", "sslmode": "prefer"}'
 
@@ -316,7 +314,7 @@ data:
                 cur.execute("DELETE FROM server WHERE user_id = ? AND name IN ('Keycloak PostgreSQL (Primary)', 'Keycloak PostgreSQL (Read Only)')", (u_id,))
 
             # 不要な共有サーバー設定の修正および sharedserver のクリーンアップ
-            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}', '{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}', '{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}', 'grafana-postgresql', 'harbor-postgresql')")
+            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_primary_host | default('keycloak-pg-postgresql-primary') }}', '{{ keycloak_pg_read_0_host | default('keycloak-pg-postgresql-read-0') }}', '{{ keycloak_pg_read_1_host | default('keycloak-pg-postgresql-read-1') }}', 'grafana-postgresql')")
             try:
                 cur.execute("DELETE FROM sharedserver")
             except Exception:

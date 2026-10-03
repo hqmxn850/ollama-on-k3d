@@ -37,16 +37,7 @@ spec:
         - protocol: TCP
           port: {{ postgres_port | default(5432) }}
 
-    # 3. Harbor からの PostgreSQL データベース接続 (ポート {{ postgres_port | default(5432) }})
-    - from:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: {{ harbor_namespace | default('harbor') }}
-      ports:
-        - protocol: TCP
-          port: {{ postgres_port | default(5432) }}
-
-    # 4. Prometheus からの postgres-exporter メトリクス収集 (ポート {{ postgres_exporter_port | default(9187) }})
+    # 3. Prometheus からの postgres-exporter メトリクス収集 (ポート {{ postgres_exporter_port | default(9187) }})
     - from:
         - namespaceSelector:
             matchLabels:

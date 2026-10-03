@@ -314,7 +314,84 @@ else
   fail "Jinja2 構文エラー: ${tpl_out}"
 fi
 
-# 6b. --tags 選択スモーク (タグ体系の回帰防止)
+# 6b. 全テンプレートの変数解決 & レンダリング検証 (StrictUndefined)
+if render_out=$(python3 - <<'RENDER_PY' 2>&1
+import glob, sys, yaml, jinja2
+
+all_vars = yaml.safe_load(open("ansible/group_vars/all.yml", encoding="utf-8"))
+runtime_vars = {
+    "lb_ips": ["127.0.0.1"],
+    "ansible_date_time": {"date": "2026-10-03", "time": "12:00:00"},
+    "role_path": "/path/to/role",
+    "playbook_dir": "/path/to/playbook",
+    "item": "test-item",
+}
+all_vars.update(runtime_vars)
+
+env = jinja2.Environment(undefined=jinja2.StrictUndefined)
+env.filters["quote"] = lambda x: f"\"{x}\""
+env.filters["to_json"] = lambda x: "{}"
+env.filters["to_yaml"] = lambda x: ""
+env.filters["to_nice_yaml"] = lambda x: ""
+env.filters["b64encode"] = lambda x: ""
+env.filters["b64decode"] = lambda x: ""
+env.filters["hash"] = lambda x, y=None: "dummy"
+env.filters["bool"] = lambda x: bool(x)
+env.globals["lookup"] = lambda *args, **kwargs: "dummy"
+
+files = sorted(set(glob.glob("ansible/roles/*/templates/*.j2") + glob.glob("ansible/**/*.j2", recursive=True)))
+bad = []
+for f in files:
+    try:
+        t_src = open(f, encoding="utf-8").read()
+        t = env.from_string(t_src)
+        t.render(**all_vars)
+    except Exception as e:
+        bad.append(f"{f}: {e}")
+
+if bad:
+    print("\n".join(bad))
+    sys.exit(1)
+print(len(files))
+RENDER_PY
+); then
+  pass "Jinja2 変数解決: 全テンプレート ${render_out} 件が StrictUndefined で正常レンダリング成功"
+else
+  fail "Jinja2 変数未解決エラー: ${render_out}"
+fi
+
+# 6c. config.env と group_vars/all.yml の変数一元管理検証
+if var_chk_out=$(python3 - <<'VARCHK_PY' 2>&1
+import re, sys
+
+config_vars = set()
+with open("config.env", encoding="utf-8") as f:
+    for line in f:
+        line = line.strip()
+        if not line or line.startswith("#"): continue
+        m = re.match(r"^([A-Z0-9_]+)=", line)
+        if m:
+            config_vars.add(m.group(1))
+
+all_yml = open("ansible/group_vars/all.yml", encoding="utf-8").read()
+missing = []
+for var in sorted(config_vars):
+    pattern = rf"lookup\([\x27\"]env[\x27\"],\s*[\x27\"]{var}[\x27\"]"
+    if not re.search(pattern, all_yml):
+        missing.append(var)
+
+if missing:
+    print(f"Missing in all.yml: {', '.join(missing)}")
+    sys.exit(1)
+print(len(config_vars))
+VARCHK_PY
+); then
+  pass "config.env 変数連携: 全 ${var_chk_out} 変数が group_vars/all.yml で一元管理されていることを確認"
+else
+  fail "config.env 変数連携エラー: ${var_chk_out}"
+fi
+
+# 6d. --tags 選択スモーク (タグ体系の回帰防止)
 check_tag() {
   local pb="$1" tag="$2" cnt
   cnt=$(cd ansible && ANSIBLE_CONFIG="${PROJECT_ROOT}/ansible/ansible.cfg" ANSIBLE_HOME="${PROJECT_ROOT}/ansible/.ansible" \

@@ -122,16 +122,16 @@ volumes:
       - "all"
   - volume: {{ kfd_device_path | default('/dev/kfd') }}:{{ kfd_device_path | default('/dev/kfd') }}
     nodeFilters:
-      - servers:*
-      - agents:*
+      - server:*
+      - agent:*
   - volume: {{ dri_device_path | default('/dev/dri') }}:{{ dri_device_path | default('/dev/dri') }}
     nodeFilters:
-      - servers:*
-      - agents:*
+      - server:*
+      - agent:*
   - volume: {{ accel_device_path | default('/dev/accel') }}:{{ accel_device_path | default('/dev/accel') }}
     nodeFilters:
-      - servers:*
-      - agents:*
+      - server:*
+      - agent:*
 
 registries:
   config: |

@@ -81,12 +81,14 @@ fi
 
 # --- 1. config.env および versions.env の読み込み ---
 log "設定ファイルを読み込み中..."
+set -a
 source "$CONFIG_ENV"
 
 if [[ -f "$VERSIONS_ENV" ]]; then
   log "バージョン情報ファイル (versions.env) を読み込み、最新バージョンを適用中..."
   source "$VERSIONS_ENV"
 fi
+set +a
 
 # --- 2. K3s 最新安定版の取得 (未指定時) ---
 if [[ -z "${IMAGE:-}" ]]; then
@@ -151,13 +153,16 @@ EXTRA_VARS=$(jq -n \
   --argjson curl_max_time "${CURL_MAX_TIME:-10}" \
   --argjson curl_retry_count "${CURL_RETRY_COUNT:-3}" \
   --argjson curl_retry_delay "${CURL_RETRY_DELAY:-2}" \
+  --argjson curl_download_max_time "${CURL_DOWNLOAD_MAX_TIME:-60}" \
   --arg k3s_image "${IMAGE}" \
   --arg podman_network "${NETWORK:-k3d}" \
   --argjson enable_network_policy "${ENABLE_NETWORK_POLICY:-true}" \
   --argjson disable_traefik "${DISABLE_TRAEFIK:-false}" \
   --argjson kubelet_user_namespace "${KUBELET_USER_NAMESPACE:-true}" \
   --argjson pre_import_images "${PRE_IMPORT_IMAGES:-true}" \
+  --arg image_archive_dir "${IMAGE_ARCHIVE_DIR:-/var/tmp/k3d-image-import}" \
   --argjson traefik_replicas "${TRAEFIK_REPLICAS:-1}" \
+  --argjson cert_manager_replicas "${CERT_MANAGER_REPLICAS:-1}" \
   --argjson webhook_replicas "${WEBHOOK_REPLICAS:-1}" \
   --argjson fleet_replicas "${FLEET_REPLICAS:-1}" \
   --argjson capi_replicas "${CAPI_REPLICAS:-1}" \
@@ -196,6 +201,8 @@ EXTRA_VARS=$(jq -n \
   --argjson keycloak_pgpool_max_pool "${KEYCLOAK_PGPOOL_MAX_POOL:-2}" \
   --argjson keycloak_pg_max_connections "${KEYCLOAK_PG_MAX_CONNECTIONS:-200}" \
   --arg keycloak_pg_primary_pod "${KEYCLOAK_PG_PRIMARY_POD:-keycloak-pg-postgresql-ha-postgresql-0}" \
+  --arg keycloak_pg_read_pod_0 "${KEYCLOAK_PG_READ_POD_0:-keycloak-pg-postgresql-ha-postgresql-0}" \
+  --arg keycloak_pg_read_pod_1 "${KEYCLOAK_PG_READ_POD_1:-keycloak-pg-postgresql-ha-postgresql-1}" \
   --argjson keycloak_events_enabled "${KEYCLOAK_EVENTS_ENABLED:-true}" \
   --argjson keycloak_events_expiration "${KEYCLOAK_EVENTS_EXPIRATION:-2592000}" \
   --argjson keycloak_admin_events_enabled "${KEYCLOAK_ADMIN_EVENTS_ENABLED:-true}" \
@@ -205,6 +212,8 @@ EXTRA_VARS=$(jq -n \
   --arg grafana_client_secret "${GRAFANA_CLIENT_SECRET:-grafana-secret}" \
   --argjson grafana_replicas "${GRAFANA_REPLICAS:-1}" \
   --argjson prometheus_replicas "${PROMETHEUS_REPLICAS:-1}" \
+  --argjson alertmanager_replicas "${ALERTMANAGER_REPLICAS:-1}" \
+  --argjson monitoring_proxy_replicas "${MONITORING_PROXY_REPLICAS:-1}" \
   --arg grafana_db_password "${GRAFANA_DB_PASSWORD:-grafana-db-2026}" \
   --arg pgadmin_hostname "${PGADMIN_HOSTNAME:-pgadmin.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}" \
   --arg pgadmin_admin_email "${PGADMIN_ADMIN_EMAIL:-admin@${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}" \
@@ -269,7 +278,9 @@ EXTRA_VARS=$(jq -n \
   --arg open_webui_hostname "${OPEN_WEBUI_HOSTNAME:-chat.${EMAIL_DOMAIN}}" \
   --argjson open_webui_port "${OPEN_WEBUI_PORT:-8080}" \
   --argjson open_webui_replicas "${OPEN_WEBUI_REPLICAS:-1}" \
+  --arg open_webui_client_id "${OPEN_WEBUI_CLIENT_ID:-open-webui}" \
   --arg open_webui_client_secret "${OPEN_WEBUI_CLIENT_SECRET:-open-webui-secret}" \
+  --arg open_webui_default_locale "${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}" \
   --arg open_webui_storage_size "${OPEN_WEBUI_STORAGE_SIZE:-30Gi}" \
   --arg open_webui_storage_class "${OPEN_WEBUI_STORAGE_CLASS:-local-path}" \
   --arg open_webui_cpu_request "${OPEN_WEBUI_CPU_REQUEST:-250m}" \

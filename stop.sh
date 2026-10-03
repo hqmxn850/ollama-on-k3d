@@ -70,7 +70,9 @@ fi
 
 # --- 1. config.env の読み込み ---
 log "config.env を読み込み中..."
+set -a
 source "$CONFIG_ENV"
+set +a
 
 # --- 2. クラスタイメージの Podman 保存・一覧更新 ---
 SAVE_IMAGES_SCRIPT="${ANSIBLE_DIR}/roles/cluster_teardown/files/save-images.sh"

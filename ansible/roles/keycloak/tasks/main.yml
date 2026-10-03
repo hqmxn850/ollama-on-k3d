@@ -66,30 +66,9 @@
   changed_when: "'CREATE DATABASE' in create_grafana_db.stdout"
   failed_when: false
 
-- name: Harbor 用 PostgreSQL ユーザーおよびデータベースを作成 (HA keycloak-pg 共有)
-  ansible.builtin.shell: |
-    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
-    DO \$\$
-    BEGIN
-      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'harbor') THEN
-        CREATE ROLE harbor WITH LOGIN ENCRYPTED PASSWORD '{{ harbor_db_password | default('harbor-db-2026') }}';
-      ELSE
-        ALTER ROLE harbor WITH ENCRYPTED PASSWORD '{{ harbor_db_password | default('harbor-db-2026') }}';
-      END IF;
-    END
-    \$\$;
-    "
-    if ! kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = 'harbor'" | grep -q 1; then
-      kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "CREATE DATABASE harbor OWNER harbor;"
-    fi
-    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE harbor TO harbor;"
-  register: create_harbor_db
-  changed_when: "'CREATE DATABASE' in create_harbor_db.stdout"
-  failed_when: false
-
 - name: 全データベースで監視・パフォーマンス拡張機能を有効化 (pg_stat_statements, pg_buffercache, pgstattuple, pg_prewarm, pg_walinspect)
   ansible.builtin.shell: |
-    for db in postgres template1 keycloak grafana harbor; do
+    for db in postgres template1 keycloak grafana; do
       kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
         CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
         CREATE EXTENSION IF NOT EXISTS pg_buffercache;
@@ -105,11 +84,11 @@
   ansible.builtin.shell: |
     # 1. クラスター共通ロールの付与
     kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
-      GRANT pg_read_server_files, pg_monitor, monitor_system_stats TO grafana, harbor, keycloak;
+      GRANT pg_read_server_files, pg_monitor, monitor_system_stats TO grafana, keycloak;
     " || true
 
     # 2. 全データベースおよび template1 で system_stats 有効化 & pg_stat_file / pg_current_logfile の実行権限を付与 (pgAdmin 監視エラー防止)
-    for db in postgres template1 keycloak grafana harbor; do
+    for db in postgres template1 keycloak grafana; do
       kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
         CREATE EXTENSION IF NOT EXISTS system_stats;
         CREATE EXTENSION IF NOT EXISTS pg_buffercache;

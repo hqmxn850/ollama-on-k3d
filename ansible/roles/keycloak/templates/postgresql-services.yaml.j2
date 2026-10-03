@@ -18,7 +18,7 @@ spec:
     app.kubernetes.io/name: postgresql-ha
     app.kubernetes.io/instance: keycloak-pg
     app.kubernetes.io/component: postgresql
-    statefulset.kubernetes.io/pod-name: {{ keycloak_pg_primary_pod }}
+    statefulset.kubernetes.io/pod-name: {{ keycloak_pg_primary_pod | default('keycloak-pg-postgresql-ha-postgresql-0') }}
 ---
 apiVersion: v1
 kind: Service
@@ -39,7 +39,7 @@ spec:
     app.kubernetes.io/name: postgresql-ha
     app.kubernetes.io/instance: keycloak-pg
     app.kubernetes.io/component: postgresql
-    statefulset.kubernetes.io/pod-name: {{ keycloak_pg_read_pod_0 }}
+    statefulset.kubernetes.io/pod-name: {{ keycloak_pg_read_pod_0 | default('keycloak-pg-postgresql-ha-postgresql-0') }}
 ---
 apiVersion: v1
 kind: Service
@@ -60,4 +60,4 @@ spec:
     app.kubernetes.io/name: postgresql-ha
     app.kubernetes.io/instance: keycloak-pg
     app.kubernetes.io/component: postgresql
-    statefulset.kubernetes.io/pod-name: {{ keycloak_pg_read_pod_1 }}
+    statefulset.kubernetes.io/pod-name: {{ keycloak_pg_read_pod_1 | default('keycloak-pg-postgresql-ha-postgresql-1') }}

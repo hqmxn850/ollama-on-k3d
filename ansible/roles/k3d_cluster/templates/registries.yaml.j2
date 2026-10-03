@@ -1,50 +1,13 @@
 mirrors:
-  "{{ harbor_hostname }}":
-    endpoint:
-      - "https://{{ harbor_hostname }}"
-  "{{ harbor_hostname }}:{{ https_port }}":
-    endpoint:
-      - "https://{{ harbor_hostname }}"
   "docker.io":
     endpoint:
-      - "https://{{ harbor_hostname }}"
-      - "{{ docker_hub_endpoint }}"
-    rewrite:
-      "^library/(.*)": "docker-hub-proxy/library/$1"
-      "^([^/]+)$": "docker-hub-proxy/library/$1"
-      "^([^/]+)/(.*)": "docker-hub-proxy/$1/$2"
+      - "{{ docker_hub_endpoint | default('https://registry-1.docker.io') }}"
   "registry-1.docker.io":
     endpoint:
-      - "https://{{ harbor_hostname }}"
-      - "{{ docker_hub_endpoint }}"
-    rewrite:
-      "^library/(.*)": "docker-hub-proxy/library/$1"
-      "^([^/]+)$": "docker-hub-proxy/library/$1"
-      "^([^/]+)/(.*)": "docker-hub-proxy/$1/$2"
+      - "{{ docker_hub_endpoint | default('https://registry-1.docker.io') }}"
   "quay.io":
     endpoint:
-      - "https://{{ harbor_hostname }}"
-      - "{{ quay_registry_endpoint }}"
-    rewrite:
-      "^([^/]+)/(.*)": "quay-proxy/$1/$2"
+      - "{{ quay_registry_endpoint | default('https://quay.io') }}"
   "registry.k8s.io":
     endpoint:
-      - "https://{{ harbor_hostname }}"
-      - "{{ k8s_registry_endpoint }}"
-    rewrite:
-      "^library/(.*)": "k8s-proxy/library/$1"
-      "^([^/]+)$": "k8s-proxy/library/$1"
-      "^([^/]+)/(.*)": "k8s-proxy/$1/$2"
-configs:
-  "{{ harbor_hostname }}":
-    auth:
-      username: "{{ harbor_admin_user }}"
-      password: "{{ harbor_admin_password }}"
-    tls:
-      insecure_skip_verify: true
-  "{{ harbor_hostname }}:{{ https_port }}":
-    auth:
-      username: "{{ harbor_admin_user }}"
-      password: "{{ harbor_admin_password }}"
-    tls:
-      insecure_skip_verify: true
+      - "{{ k8s_registry_endpoint | default('https://registry.k8s.io') }}"

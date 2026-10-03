@@ -90,7 +90,7 @@ done
 
 echo "==> Activating system_stats extension in PostgreSQL databases..."
 KEYCLOAK_NS="${KEYCLOAK_NAMESPACE:-keycloak}"
-for db in postgres template1 keycloak grafana harbor; do
+for db in postgres template1 keycloak grafana; do
   echo "    Activating system_stats on database: $db"
   kubectl exec -n "$KEYCLOAK_NS" "${PG_PRIMARY_POD:-keycloak-pg-postgresql-ha-postgresql-0}" -c postgresql -- \
     env PGPASSWORD="${PGPASSWORD:-keycloak-pg-2026}" psql -U postgres -d "$db" -c "CREATE EXTENSION IF NOT EXISTS system_stats;" || true
@@ -98,6 +98,6 @@ done
 
 echo "==> Granting monitor_system_stats role to application users..."
 kubectl exec -n "$KEYCLOAK_NS" "${PG_PRIMARY_POD:-keycloak-pg-postgresql-ha-postgresql-0}" -c postgresql -- \
-  env PGPASSWORD="${PGPASSWORD:-keycloak-pg-2026}" psql -U postgres -c "GRANT monitor_system_stats TO grafana, harbor, keycloak;" || true
+  env PGPASSWORD="${PGPASSWORD:-keycloak-pg-2026}" psql -U postgres -c "GRANT monitor_system_stats TO grafana, keycloak;" || true
 
 echo "==> system_stats extension installed and verified successfully!"

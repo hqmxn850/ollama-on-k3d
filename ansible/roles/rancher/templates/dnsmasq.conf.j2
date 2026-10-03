@@ -1,16 +1,12 @@
-# Rancher/Keycloak/Harbor/Grafana/Ceph 等の DNS 設定 (roundrobin)
+# Rancher/Keycloak/Grafana/pgAdmin/Traefik/Ollama/OGA/Open-WebUI 等の DNS 設定 (roundrobin)
 {% for ip in lb_ips %}
 address=/{{ rancher_hostname }}/{{ ip }}
 address=/{{ keycloak_hostname }}/{{ ip }}
-address=/{{ registry_hostname }}/{{ ip }}
 address=/{{ grafana_hostname }}/{{ ip }}
 address=/{{ pgadmin_hostname }}/{{ ip }}
-address=/{{ ceph_rgw_hostname }}/{{ ip }}
-address=/{{ ceph_dashboard_hostname }}/{{ ip }}
 address=/{{ traefik_hostname }}/{{ ip }}
-address=/{{ kubevirt_manager_hostname }}/{{ ip }}
 address=/{{ ollama_hostname }}/{{ ip }}
 address=/{{ oga_hostname }}/{{ ip }}
 address=/{{ open_webui_hostname }}/{{ ip }}
+address=/.{{ email_domain }}/{{ ip }}
 {% endfor %}
-
