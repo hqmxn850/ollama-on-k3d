@@ -82,10 +82,11 @@ usage() {
 説明:
   Kubernetes 上で稼働中の Ollama サービスに指定された LLM モデルをダウンロード (pull)
   または不要になったモデルを削除 (rm / delete) します。
-  モデルデータは CephFS 永続ボリュームに保存・管理されます。
+  モデルデータは Ollama 用の永続ボリューム (PersistentVolumeClaim) に保存・管理されます。
 
 オプション:
   -m, --model <name>       対象のモデル名
+  pull, download           ダウンロードのサブコマンド構文 (省略可)
   -d, --delete, --rm       指定されたモデルをクラスタから削除
   rm, delete               指定されたモデルを削除するサブコマンド構文
   -l, --list               現在クラスタ内にダウンロード済みのモデル一覧を表示
@@ -127,6 +128,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     -d|--delete|--rm|rm|delete)
       ACTION="delete"
+      shift
+      ;;
+    pull|download)
+      # pull サブコマンド構文 (省略可): ./ollama-pull.sh pull <model_name>
       shift
       ;;
     --exec)

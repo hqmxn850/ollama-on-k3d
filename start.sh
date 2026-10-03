@@ -716,3 +716,77 @@ if [[ "$CHECK_MODE" == false && "$SKIP_UPGRADE_CHECK" == false ]]; then
     warn "アップグレード確認処理で異常が発生しました (終了コード: ${UPGRADE_CHECK_RC})"
   fi
 fi
+
+# --- 11. 標準 LLM モデルの自動登録 & Open WebUI 標準モデル設定 ---
+if [[ "$CHECK_MODE" == false && "${OLLAMA_ENABLED:-true}" == true \
+  && "${OLLAMA_DEFAULT_MODEL_AUTO_SETUP:-true}" == true && -n "${OLLAMA_DEFAULT_MODEL:-}" ]]; then
+  echo ""
+  log "標準 LLM モデル (${OLLAMA_DEFAULT_MODEL}) の登録状態を確認中..."
+
+  OLLAMA_MODEL_LIST=""
+  for _attempt in $(seq 1 "${OLLAMA_DEFAULT_MODEL_SETUP_RETRIES:-30}"); do
+    if OLLAMA_MODEL_LIST="$("${SCRIPT_DIR}/ollama-pull.sh" --list 2>/dev/null)" && [[ -n "${OLLAMA_MODEL_LIST}" ]]; then
+      break
+    fi
+    OLLAMA_MODEL_LIST=""
+    sleep "${OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL:-2}"
+  done
+
+  if [[ -z "${OLLAMA_MODEL_LIST}" ]]; then
+    warn "Ollama に接続できないため標準 LLM モデルの登録をスキップしました"
+  else
+    # 登録済みモデル名の検出 (Ollama はモデル名を小文字で保持するため大文字小文字を区別しない)
+    REGISTERED_MODEL="$(printf '%s\n' "${OLLAMA_MODEL_LIST}" \
+      | awk -v m="${OLLAMA_DEFAULT_MODEL}" 'tolower($1) == tolower(m) { print $1; exit }')"
+
+    if [[ -z "${REGISTERED_MODEL}" ]]; then
+      log "標準 LLM モデルが未登録のため pull を実行します (ダウンロードには時間がかかります)..."
+      if "${SCRIPT_DIR}/ollama-pull.sh" "${OLLAMA_DEFAULT_MODEL}"; then
+        OLLAMA_MODEL_LIST="$("${SCRIPT_DIR}/ollama-pull.sh" --list 2>/dev/null || true)"
+        REGISTERED_MODEL="$(printf '%s\n' "${OLLAMA_MODEL_LIST}" \
+          | awk -v m="${OLLAMA_DEFAULT_MODEL}" 'tolower($1) == tolower(m) { print $1; exit }')"
+        REGISTERED_MODEL="${REGISTERED_MODEL:-${OLLAMA_DEFAULT_MODEL}}"
+        succ "標準 LLM モデルを登録しました: ${REGISTERED_MODEL}"
+      else
+        REGISTERED_MODEL=""
+        warn "標準 LLM モデルの pull に失敗しました。手動で登録してください: ./ollama-pull.sh ${OLLAMA_DEFAULT_MODEL}"
+      fi
+    else
+      log "標準 LLM モデルは既に登録されています: ${REGISTERED_MODEL}"
+    fi
+
+    if [[ -n "${REGISTERED_MODEL}" && "${OPEN_WEBUI_ENABLED:-true}" == true ]]; then
+      # 管理者 API が利用できない (管理者ユーザー未作成) ため、アプリ内 DB を直接更新する
+      OWUI_NAMESPACE="${OPEN_WEBUI_NAMESPACE:-open-webui}"
+      OWUI_POD="$(kubectl -n "${OWUI_NAMESPACE}" get pod -l app.kubernetes.io/name=open-webui \
+        -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+
+      if [[ -n "${OWUI_POD}" ]]; then
+        log "Open WebUI の標準モデル設定を更新中 (pod: ${OWUI_POD}, model: ${REGISTERED_MODEL})..."
+        if kubectl -n "${OWUI_NAMESPACE}" exec -i "${OWUI_POD}" -- sh -c \
+          'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python - "$1"' \
+          sh "${REGISTERED_MODEL}" <<'PYEOF'
+import asyncio
+import sys
+
+from open_webui.models.config import Config
+
+model_id = sys.argv[1]
+asyncio.run(Config.upsert({
+    "ui.default_models": model_id,
+    "ui.default_pinned_models": model_id,
+}))
+print("ui.default_models =", asyncio.run(Config.get("ui.default_models")))
+print("ui.default_pinned_models =", asyncio.run(Config.get("ui.default_pinned_models")))
+PYEOF
+        then
+          succ "Open WebUI の標準モデルを設定しました: ${REGISTERED_MODEL}"
+        else
+          warn "Open WebUI の標準モデル設定に失敗しました (UI の Settings > Interface から手動で設定してください)"
+        fi
+      else
+        warn "Open WebUI Pod が見つからないため標準モデル設定をスキップしました"
+      fi
+    fi
+  fi
+fi

@@ -101,10 +101,15 @@
 | `OLLAMA_PORT` | Ollama API 待受ポート | `11434` |
 | `OLLAMA_STORAGE_SIZE` | Ollama モデル保存用 PVC 容量 | `30Gi` |
 | `OLLAMA_STORAGE_CLASS` | Ollama モデル保存用 StorageClass | `local-path` |
+| `OLLAMA_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `FieldMouse-AI/qwen3.8:27B` |
+| `OLLAMA_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
+| `OLLAMA_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Ollama 接続リトライ回数 | `30` |
+| `OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
 | `OGA_ENABLED` | OnnxRuntime GenAI サービスのデプロイ有効化 | `true` |
 | `OGA_HOSTNAME` | OGA API ホスト名 | `oga.${EMAIL_DOMAIN}` |
 | `OGA_PORT` | OGA 待受ポート | `8000` |
 | `OPEN_WEBUI_ENABLED` | Open WebUI のデプロイ有効化 | `true` |
+| `OPEN_WEBUI_NAMESPACE` | Open WebUI の名前空間 | `open-webui` |
 | `OPEN_WEBUI_HOSTNAME` | Open WebUI ホスト名 | `chat.${EMAIL_DOMAIN}` |
 | `OPEN_WEBUI_PORT` | Open WebUI 待受ポート | `8080` |
 | `OPEN_WEBUI_STORAGE_CLASS` | Open WebUI データ用 StorageClass | `local-path` |
@@ -116,10 +121,11 @@
 ## 開発・運用ガイドライン
 
 1. **CPU 制限の適用メカニズム**:
-   - `k3d` 自体にはコンテナレベルの `--cpus` 引数がないため、`ansible/roles/k3d_cluster/tasks/main.yml` において、ノードコンテナ作成直後に `podman update --cpus 8 --cpuset-cpus 0-7 k3d-<cluster>-server-0` および `podman update --cpus 24 --cpuset-cpus 8-31 k3d-<cluster>-agent-0` を実行する。
+   - `k3d` 自体にはコンテナレベルの `--cpus` 引数がないため、`ansible/roles/k3d_cluster/tasks/main.yml` において、ノードコンテナ作成直後に `podman update --cpus {{ server_cpus }} --cpuset-cpus {{ server_cpuset }} k3d-<cluster>-server-0` および `podman update --cpus {{ agent_cpus }} --cpuset-cpus {{ agent_cpuset }} k3d-<cluster>-agent-0` を実行する (値は `config.env` の `SERVER_CPUS` / `SERVER_CPUSET` / `AGENT_CPUS` / `AGENT_CPUSET`)。
 2. **ノードラベリングと nodeSelector**:
    - Server ノードには `tier=core, role=control-plane, node-role.kubernetes.io/control-plane=true` を付与。
    - Worker ノードには `tier=ai, role=worker, node-role.kubernetes.io/worker=true` を付与。
    - 各 Helm values / Deployment において `nodeSelector` を設定し、意図せぬノード間混在を防止する。
 3. **モデル管理**:
    - `./ollama-pull.sh pull <モデル名>` により、稼働中の Ollama Pod 内へ直接モデルをダウンロード・永続化可能。
+   - `start.sh` はデプロイ末尾 (セクション 11) で `OLLAMA_DEFAULT_MODEL` が Ollama に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`OLLAMA_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。

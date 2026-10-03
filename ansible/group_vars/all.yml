@@ -34,7 +34,7 @@ turtles_namespace: "cattle-turtles-system"
 kube_system_namespace: "kube-system"
 ollama_namespace: "ollama"
 oga_namespace: "oga"
-open_webui_namespace: "open-webui"
+open_webui_namespace: "{{ lookup('env', 'OPEN_WEBUI_NAMESPACE') | default('open-webui', true) }}"
 default_namespace: "default"
 
 # 共通タイムアウト設定 (config.env のタイミング変数と連携: lookup + default)
@@ -102,6 +102,8 @@ k8s_metrics_proxy_port: "{{ lookup('env', 'K8S_METRICS_PROXY_PORT') | default(10
 # K3s 設定
 disable_traefik: "{{ lookup('env', 'DISABLE_TRAEFIK') | default(false, true) | bool }}"
 kubelet_user_namespace: "{{ lookup('env', 'KUBELET_USER_NAMESPACE') | default(true, true) | bool }}"
+# k3s datastore が etcd の場合 (SERVERS > 1) のみ true。sqlite datastore では etcd が無いため false
+k3s_etcd_metrics_enabled: "{{ lookup('env', 'K3S_ETCD_METRICS_ENABLED') | default(false, true) | bool }}"
 
 # 単一レプリカ・リソース設定
 traefik_replicas: "{{ lookup('env', 'TRAEFIK_REPLICAS') | default(1, true) | int }}"
@@ -219,7 +221,7 @@ amd_gpu_device_plugin_repository: "docker.io/rocm/k8s-device-plugin"
 amd_gpu_daemonset_name: "amd-gpu-device-plugin-daemonset"
 amd_gpu_nfd_enabled: false
 amd_gpu_labeller_enabled: false
-amd_gpu_node_selector_enabled: false
+amd_gpu_node_selector_enabled: "{{ lookup('env', 'AMD_GPU_NODE_SELECTOR_ENABLED') | default(true, true) | bool }}"
 kfd_device_path: "{{ lookup('env', 'KFD_DEVICE_PATH') | default('/dev/kfd', true) }}"
 dri_device_path: "{{ lookup('env', 'DRI_DEVICE_PATH') | default('/dev/dri', true) }}"
 
@@ -259,6 +261,10 @@ ollama_readiness_delay_seconds: "{{ lookup('env', 'OLLAMA_READINESS_DELAY_SECOND
 ollama_readiness_timeout_seconds: "{{ lookup('env', 'OLLAMA_READINESS_TIMEOUT_SECONDS') | default(5, true) | int }}"
 ollama_readiness_failure_threshold: "{{ lookup('env', 'OLLAMA_READINESS_FAILURE_THRESHOLD') | default(3, true) | int }}"
 ollama_readiness_period_seconds: "{{ lookup('env', 'OLLAMA_READINESS_PERIOD_SECONDS') | default(10, true) | int }}"
+ollama_default_model: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL') | default('FieldMouse-AI/qwen3.8:27B', true) }}"
+ollama_default_model_auto_setup: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_AUTO_SETUP') | default(true, true) | bool }}"
+ollama_default_model_setup_retries: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_SETUP_RETRIES') | default(30, true) | int }}"
+ollama_default_model_setup_retry_interval: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL') | default(2, true) | int }}"
 
 # OnnxRuntime GenAI (OGA) LLM / SLM サービス設定 (Worker ノード配置)
 oga_enabled: "{{ lookup('env', 'OGA_ENABLED') | default(true, true) | bool }}"
