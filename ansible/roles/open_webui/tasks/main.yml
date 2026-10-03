@@ -59,3 +59,52 @@
 - name: Open WebUI Pod ステータスを表示
   ansible.builtin.debug:
     msg: "{{ open_webui_pods_status.stdout_lines | default([]) }}"
+
+- name: Open WebUI ロケールおよびインターフェース設定を DB に反映
+  ansible.builtin.command: >-
+    kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui --
+    sh -c 'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$1"'
+    sh "{{ open_webui_default_locale | default('ja-JP') }}"
+  args:
+    stdin: |
+      import asyncio
+      import json
+      import sqlite3
+      import sys
+      from open_webui.models.config import Config
+
+      locale = sys.argv[1]
+      asyncio.run(Config.upsert({
+          "ui.default_locale": locale,
+          "ui.default_interface_settings": {"locale": locale},
+      }))
+      print("ui.default_locale =", asyncio.run(Config.get("ui.default_locale")))
+      print("ui.default_interface_settings =", asyncio.run(Config.get("ui.default_interface_settings")))
+
+      try:
+          conn = sqlite3.connect("/app/backend/data/webui.db")
+          c = conn.cursor()
+          users = c.execute("SELECT id, settings FROM user").fetchall()
+          for uid, raw_settings in users:
+              try:
+                  s = json.loads(raw_settings) if raw_settings else {}
+              except Exception:
+                  s = {}
+              if not isinstance(s, dict):
+                  s = {}
+              ui = s.get("ui")
+              if not isinstance(ui, dict):
+                  ui = {}
+              ui["locale"] = locale
+              s["ui"] = ui
+              c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
+          conn.commit()
+          conn.close()
+      except Exception as e:
+          print(f"Warning: Failed to update existing user settings: {e}")
+  register: open_webui_locale_setup
+  changed_when: false
+  retries: "{{ quick_retry_count | default(5) }}"
+  delay: "{{ quick_retry_delay | default(3) }}"
+  until: open_webui_locale_setup.rc == 0
+

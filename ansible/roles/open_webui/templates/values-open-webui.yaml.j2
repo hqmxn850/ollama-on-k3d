@@ -72,7 +72,9 @@ extraEnvVars:
   - name: WEBUI_NAME
     value: "Open WebUI (Local AI)"
   - name: DEFAULT_LOCALE
-    value: "ja-JP"
+    value: {{ open_webui_default_locale | default('ja-JP') | quote }}
+  - name: DEFAULT_INTERFACE_SETTINGS
+    value: '{"locale": {{ open_webui_default_locale | default("ja-JP") | to_json }}}'
   - name: WEBUI_AUTH
     value: "true"
   # Keycloak OIDC 認証設定
@@ -99,3 +101,40 @@ extraEnvVars:
     value: "http://oga.{{ oga_namespace | default('oga') }}.svc.cluster.local:{{ oga_port | default(8000) }}/v1"
   - name: OPENAI_API_KEYS
     value: "none"
+
+# フロントエンド静的スクリプト (loader.js) による初回アクセス時のロケール自動適用
+volumeMounts:
+  container:
+    - name: open-webui-loader-js
+      mountPath: /app/build/static/loader.js
+      subPath: loader.js
+
+volumes:
+  - name: open-webui-loader-js
+    configMap:
+      name: open-webui-loader-js
+      defaultMode: 0644
+
+extraResources:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: open-webui-loader-js
+      labels:
+        app.kubernetes.io/name: open-webui
+        app.kubernetes.io/component: open-webui
+    data:
+      loader.js: |
+        // Open WebUI ロケール自動初期化 (デフォルト: {{ open_webui_default_locale | default('ja-JP') }})
+        (function() {
+          try {
+            var defaultLocale = {{ open_webui_default_locale | default('ja-JP') | to_json }};
+            var currentLocale = localStorage.getItem('locale');
+            if (!currentLocale) {
+              localStorage.setItem('locale', defaultLocale);
+            }
+          } catch (e) {
+            console.error('Failed to initialize locale in loader.js:', e);
+          }
+        })();
+

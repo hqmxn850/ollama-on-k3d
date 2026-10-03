@@ -113,6 +113,7 @@
 | `OPEN_WEBUI_HOSTNAME` | Open WebUI ホスト名 | `chat.${EMAIL_DOMAIN}` |
 | `OPEN_WEBUI_PORT` | Open WebUI 待受ポート | `8080` |
 | `OPEN_WEBUI_STORAGE_CLASS` | Open WebUI データ用 StorageClass | `local-path` |
+| `OPEN_WEBUI_DEFAULT_LOCALE` | Open WebUI デフォルト言語ロケール | `ja-JP` |
 | `AMD_GPU_PLUGIN_ENABLED` | AMD GPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
 
@@ -129,3 +130,6 @@
 3. **モデル管理**:
    - `./ollama-pull.sh pull <モデル名>` により、稼働中の Ollama Pod 内へ直接モデルをダウンロード・永続化可能。
    - `start.sh` はデプロイ末尾 (セクション 11) で `OLLAMA_DEFAULT_MODEL` が Ollama に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`OLLAMA_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。
+4. **UI 日本語化**:
+   - Open WebUI は `DEFAULT_LOCALE` / `DEFAULT_INTERFACE_SETTINGS` 環境変数、`loader.js` によるフロントエンドロケール自動設定、および DB 内の `ui.default_locale` / `ui.default_interface_settings` / 既存ユーザー設定同期により、新規アクセス時および全ユーザーにおいて `OPEN_WEBUI_DEFAULT_LOCALE` (デフォルト: `ja-JP`) で統一される。
+

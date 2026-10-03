@@ -757,37 +757,72 @@ if [[ "$CHECK_MODE" == false && "${OLLAMA_ENABLED:-true}" == true \
       "${SCRIPT_DIR}/ollama-pull.sh" --enable-tools "${REGISTERED_MODEL}" || true
     fi
 
-    if [[ -n "${REGISTERED_MODEL}" && "${OPEN_WEBUI_ENABLED:-true}" == true ]]; then
+    if [[ "${OPEN_WEBUI_ENABLED:-true}" == true ]]; then
       # 管理者 API が利用できない (管理者ユーザー未作成) ため、アプリ内 DB を直接更新する
       OWUI_NAMESPACE="${OPEN_WEBUI_NAMESPACE:-open-webui}"
       OWUI_POD="$(kubectl -n "${OWUI_NAMESPACE}" get pod -l app.kubernetes.io/name=open-webui \
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 
       if [[ -n "${OWUI_POD}" ]]; then
-        log "Open WebUI の標準モデル設定を更新中 (pod: ${OWUI_POD}, model: ${REGISTERED_MODEL})..."
+        log "Open WebUI の標準設定 (モデル / ロケール) を更新中 (pod: ${OWUI_POD}, model: ${REGISTERED_MODEL:-なし}, locale: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP})..."
         if kubectl -n "${OWUI_NAMESPACE}" exec -i "${OWUI_POD}" -- sh -c \
-          'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python - "$1"' \
-          sh "${REGISTERED_MODEL}" <<'PYEOF'
+          'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$1" "$2"' \
+          sh "${REGISTERED_MODEL}" "${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}" <<'PYEOF'
 import asyncio
+import json
+import sqlite3
 import sys
 
 from open_webui.models.config import Config
 
-model_id = sys.argv[1]
-asyncio.run(Config.upsert({
-    "ui.default_models": model_id,
-    "ui.default_pinned_models": model_id,
-}))
-print("ui.default_models =", asyncio.run(Config.get("ui.default_models")))
-print("ui.default_pinned_models =", asyncio.run(Config.get("ui.default_pinned_models")))
+model_id = sys.argv[1] if len(sys.argv) > 1 else ""
+locale = sys.argv[2] if len(sys.argv) > 2 else "ja-JP"
+
+updates = {
+    "ui.default_locale": locale,
+    "ui.default_interface_settings": {"locale": locale},
+}
+if model_id:
+    updates["ui.default_models"] = model_id
+    updates["ui.default_pinned_models"] = model_id
+
+asyncio.run(Config.upsert(updates))
+
+if model_id:
+    print("ui.default_models =", asyncio.run(Config.get("ui.default_models")))
+    print("ui.default_pinned_models =", asyncio.run(Config.get("ui.default_pinned_models")))
+print("ui.default_locale =", asyncio.run(Config.get("ui.default_locale")))
+print("ui.default_interface_settings =", asyncio.run(Config.get("ui.default_interface_settings")))
+
+try:
+    conn = sqlite3.connect("/app/backend/data/webui.db")
+    c = conn.cursor()
+    users = c.execute("SELECT id, settings FROM user").fetchall()
+    for uid, raw_settings in users:
+        try:
+            s = json.loads(raw_settings) if raw_settings else {}
+        except Exception:
+            s = {}
+        if not isinstance(s, dict):
+            s = {}
+        ui = s.get("ui")
+        if not isinstance(ui, dict):
+            ui = {}
+        ui["locale"] = locale
+        s["ui"] = ui
+        c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
+    conn.commit()
+    conn.close()
+except Exception as e:
+    print(f"Warning: Failed to update existing user settings: {e}")
 PYEOF
         then
-          succ "Open WebUI の標準モデルを設定しました: ${REGISTERED_MODEL}"
+          succ "Open WebUI の標準設定を更新しました (モデル: ${REGISTERED_MODEL:-未設定}, ロケール: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP})"
         else
-          warn "Open WebUI の標準モデル設定に失敗しました (UI の Settings > Interface から手動で設定してください)"
+          warn "Open WebUI の標準設定に失敗しました (UI の Settings > Interface から手動で設定してください)"
         fi
       else
-        warn "Open WebUI Pod が見つからないため標準モデル設定をスキップしました"
+        warn "Open WebUI Pod が見つからないため標準設定をスキップしました"
       fi
     fi
   fi
