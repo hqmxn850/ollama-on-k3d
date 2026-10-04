@@ -294,6 +294,7 @@ EXTRA_VARS=$(jq -n \
   --arg open_webui_web_search_engine "${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo}" \
   --argjson open_webui_web_search_result_count "${OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT:-3}" \
   --argjson open_webui_web_search_concurrent_requests "${OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS:-10}" \
+  --arg open_webui_cors_allow_origin "${OPEN_WEBUI_CORS_ALLOW_ORIGIN:-https://${OPEN_WEBUI_HOSTNAME:-chat.${EMAIL_DOMAIN}}}" \
   --argjson sysctl_somaxconn "${SYSCTL_SOMAXCONN:-65535}" \
   --argjson sysctl_tcp_max_syn_backlog "${SYSCTL_TCP_MAX_SYN_BACKLOG:-65535}" \
   --argjson sysctl_netdev_max_backlog "${SYSCTL_NETDEV_MAX_BACKLOG:-65535}" \
@@ -516,6 +517,7 @@ EXTRA_VARS=$(jq -n \
     open_webui_web_search_engine: $open_webui_web_search_engine,
     open_webui_web_search_result_count: $open_webui_web_search_result_count,
     open_webui_web_search_concurrent_requests: $open_webui_web_search_concurrent_requests,
+    open_webui_cors_allow_origin: $open_webui_cors_allow_origin,
     sysctl_somaxconn: $sysctl_somaxconn,
     sysctl_tcp_max_syn_backlog: $sysctl_tcp_max_syn_backlog,
     sysctl_netdev_max_backlog: $sysctl_netdev_max_backlog,

@@ -69,6 +69,8 @@ extraEnvVars:
   # ベース URL & アプリケーション設定
   - name: WEBUI_URL
     value: "https://{{ open_webui_hostname }}"
+  - name: CORS_ALLOW_ORIGIN
+    value: {{ open_webui_cors_allow_origin | default('https://' ~ open_webui_hostname) | quote }}
   - name: WEBUI_NAME
     value: "Open WebUI (Local AI)"
   - name: DEFAULT_LOCALE

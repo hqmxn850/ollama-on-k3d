@@ -332,6 +332,7 @@ open_webui_web_search_result_count: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_RES
 open_webui_web_search_concurrent_requests: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS') | default(10, true) | int }}"
 open_webui_web_search_bypass_web_loader: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_BYPASS_WEB_LOADER') | default(true, true) | bool }}"
 open_webui_web_search_bypass_embedding_and_retrieval: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_BYPASS_EMBEDDING_AND_RETRIEVAL') | default(true, true) | bool }}"
+open_webui_cors_allow_origin: "{{ lookup('env', 'OPEN_WEBUI_CORS_ALLOW_ORIGIN') | default('https://' ~ open_webui_hostname, true) }}"
 
 # TCP/IP & カーネル・リソース チューニング設定
 sysctl_somaxconn: "{{ lookup('env', 'SYSCTL_SOMAXCONN') | default(65535, true) | int }}"
