@@ -298,7 +298,7 @@ oga_startup_period_seconds: "{{ lookup('env', 'OGA_STARTUP_PERIOD_SECONDS') | de
 # AMD NPU 推論エンジン (FastFlowLM / FLM) 設定
 npu_flm_enabled: "{{ lookup('env', 'NPU_FLM_ENABLED') | default(true, true) | bool }}"
 npu_flm_port: "{{ lookup('env', 'NPU_FLM_PORT') | default(52625, true) | int }}"
-npu_flm_default_model: "{{ lookup('env', 'NPU_FLM_DEFAULT_MODEL') | default('qwen3:0.6b', true) }}"
+npu_flm_default_model: "{{ lookup('env', 'NPU_FLM_DEFAULT_MODEL') | default('gemma4-it:e4b', true) }}"
 npu_flm_host_ip: "{{ lookup('env', 'NPU_FLM_HOST_IP') | default(podman_network_gateway | default('10.89.0.1'), true) }}"
 npu_flm_bind_host: "{{ lookup('env', 'NPU_FLM_BIND_HOST') | default('0.0.0.0', true) }}"
 npu_flm_probe_host: "{{ lookup('env', 'NPU_FLM_PROBE_HOST') | default('127.0.0.1', true) }}"

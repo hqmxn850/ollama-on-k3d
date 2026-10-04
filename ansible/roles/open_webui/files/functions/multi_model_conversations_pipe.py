@@ -15,7 +15,7 @@ import os
 class Pipe:
     class Valves(BaseModel):
         MODELS: str = Field(
-            default="FieldMouse-AI/qwen3.8:27B, qwen3:0.6b",
+            default="FieldMouse-AI/qwen3.8:27B, gemma4-it:e4b",
             description="並列問い合わせを行うモデル名のカンマ区切りリスト"
         )
         OLLAMA_URL: str = Field(
@@ -103,8 +103,9 @@ class Pipe:
         async with aiohttp.ClientSession() as session:
             tasks = []
             for model in models:
-                # モデル名に応じてルーティング判定（0.6b や npu, flm は OGA, その他は Ollama）
-                if "0.6b" in model.lower() or "npu" in model.lower() or "flm" in model.lower():
+                # モデル名に応じてルーティング判定（NPU / OGA 判定: 0.6b, e4b, e2b, gemma4, npu, flm 等）
+                m_lower = model.lower()
+                if any(k in m_lower for k in ["0.6b", "e4b", "e2b", "gemma4", "npu", "flm"]):
                     endpoint = oga_url
                 else:
                     endpoint = ollama_url

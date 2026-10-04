@@ -265,7 +265,7 @@ EXTRA_VARS=$(jq -n \
   --argjson oga_startup_period_seconds "${OGA_STARTUP_PERIOD_SECONDS:-10}" \
   --argjson npu_flm_enabled "${NPU_FLM_ENABLED:-true}" \
   --argjson npu_flm_port "${NPU_FLM_PORT:-52625}" \
-  --arg npu_flm_default_model "${NPU_FLM_DEFAULT_MODEL:-qwen3:0.6b}" \
+  --arg npu_flm_default_model "${NPU_FLM_DEFAULT_MODEL:-gemma4-it:e4b}" \
   --arg npu_flm_host_ip "${NPU_FLM_HOST_IP:-10.89.0.1}" \
   --arg npu_flm_bind_host "${NPU_FLM_BIND_HOST:-0.0.0.0}" \
   --arg npu_flm_probe_host "${NPU_FLM_PROBE_HOST:-127.0.0.1}" \
@@ -613,7 +613,7 @@ if [[ "$CHECK_MODE" == false && "${NPU_FLM_ENABLED:-true}" == true ]]; then
       log "FastFlowLM NPU カーネルが見つからないため取得中 (sudo flm-fetch-kernels)..."
       sudo flm-fetch-kernels || warn "flm-fetch-kernels に失敗しました"
     fi
-    FLM_MODEL="${NPU_FLM_DEFAULT_MODEL:-qwen3:0.6b}"
+    FLM_MODEL="${NPU_FLM_DEFAULT_MODEL:-gemma4-it:e4b}"
     FLM_CMD=(flm)
     if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
       FLM_CMD=(sudo -u "${SUDO_USER}" HOME="${ACTUAL_USER_HOME}" flm)
