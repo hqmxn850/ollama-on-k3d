@@ -116,7 +116,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "ollama_up or vector(0)",
+              "expr": "max(ollama_up) or vector(0)",
               "refId": "A"
             }
           ]
@@ -192,7 +192,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "oga_up or vector(0)",
+              "expr": "max(oga_up) or vector(0)",
               "refId": "A"
             }
           ]
@@ -247,7 +247,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "ollama_models_total or vector(0)",
+              "expr": "max(ollama_models_total) or vector(0)",
               "refId": "A"
             }
           ]
@@ -302,7 +302,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "ollama_loaded_models_total or vector(0)",
+              "expr": "max(ollama_loaded_models_total) or vector(0)",
               "refId": "A"
             }
           ]
@@ -357,7 +357,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "oga_models_total or vector(0)",
+              "expr": "max(oga_models_total) or vector(0)",
               "refId": "A"
             }
           ]
@@ -412,7 +412,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "oga_loaded_models_total or vector(0)",
+              "expr": "max(oga_loaded_models_total) or vector(0)",
               "refId": "A"
             }
           ]
@@ -1149,7 +1149,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_up{device=\"accel0\"} or vector(0)",
+              "expr": "max(amd_npu_up{device=\"accel0\"}) or vector(0)",
               "refId": "A"
             }
           ]
@@ -1213,7 +1213,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_column_utilization_ratio{device=\"accel0\"} or vector(0)",
+              "expr": "max(amd_npu_column_utilization_ratio{device=\"accel0\"}) or vector(0)",
               "legendFormat": "AIE Columns",
               "refId": "A"
             }
@@ -1317,7 +1317,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_active_contexts{device=\"accel0\"} or vector(0)",
+              "expr": "amd_npu_active_contexts{device=\"accel0\"}",
               "legendFormat": "Active Contexts",
               "refId": "A"
             },
@@ -1326,7 +1326,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_columns_occupied{device=\"accel0\"} or vector(0)",
+              "expr": "amd_npu_columns_occupied{device=\"accel0\"}",
               "legendFormat": "Columns Occupied",
               "refId": "B"
             }
@@ -1382,7 +1382,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_pcie_link_speed_gts{device=\"accel0\"} or vector(0)",
+              "expr": "max(amd_npu_pcie_link_speed_gts{device=\"accel0\"}) or vector(0)",
               "legendFormat": "Speed (GT/s)",
               "refId": "A"
             },
@@ -1391,7 +1391,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_pcie_link_width{device=\"accel0\"} or vector(0)",
+              "expr": "max(amd_npu_pcie_link_width{device=\"accel0\"}) or vector(0)",
               "legendFormat": "Width (Lanes)",
               "refId": "B"
             }
@@ -1443,7 +1443,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "rate(amd_npu_command_submissions_total{device=\"accel0\"}[1m]) or vector(0)",
+              "expr": "rate(amd_npu_command_submissions_total{device=\"accel0\"}[1m])",
               "legendFormat": "Submissions/s",
               "refId": "A"
             },
@@ -1452,7 +1452,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "rate(amd_npu_command_completions_total{device=\"accel0\"}[1m]) or vector(0)",
+              "expr": "rate(amd_npu_command_completions_total{device=\"accel0\"}[1m])",
               "legendFormat": "Completions/s",
               "refId": "B"
             },
@@ -1461,7 +1461,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "amd_npu_command_errors_total{device=\"accel0\"} or vector(0)",
+              "expr": "amd_npu_command_errors_total{device=\"accel0\"}",
               "legendFormat": "Errors Total",
               "refId": "C"
             }
