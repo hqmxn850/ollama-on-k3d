@@ -67,6 +67,8 @@ primary:
     log_rotation_size = {{ keycloak_pg_log_rotation_size | default('100MB') }}
     log_min_messages = {{ keycloak_pg_log_min_messages | default('warning') }}
     log_line_prefix = '{{ keycloak_pg_log_line_prefix | default("%m [%p] %q%u@%d ") }}'
+    log_timezone = '{{ keycloak_pg_log_timezone | default("Asia/Tokyo") }}'
+    timezone = '{{ keycloak_pg_timezone | default("Asia/Tokyo") }}'
 
   resources:
     requests:
