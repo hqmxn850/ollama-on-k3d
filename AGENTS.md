@@ -105,6 +105,7 @@
 | `OLLAMA_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
 | `OLLAMA_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Ollama 接続リトライ回数 | `30` |
 | `OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
+| `OLLAMA_NUM_CTX` | Ollama LLM コンテキスト長 (トークン数) | `32768` |
 | `OGA_ENABLED` | OnnxRuntime GenAI サービスのデプロイ有効化 | `true` |
 | `OGA_HOSTNAME` | OGA API ホスト名 | `oga.${EMAIL_DOMAIN}` |
 | `OGA_PORT` | OGA 待受ポート | `8000` |

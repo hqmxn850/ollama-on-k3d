@@ -66,6 +66,7 @@ OLLAMA_NAMESPACE="${OLLAMA_NAMESPACE:-ollama}"
 EMAIL_DOMAIN="${EMAIL_DOMAIN:-philippines.com.ph}"
 OLLAMA_HOSTNAME="${OLLAMA_HOSTNAME:-ollama.${EMAIL_DOMAIN}}"
 OLLAMA_PORT="${OLLAMA_PORT:-11434}"
+OLLAMA_NUM_CTX="${OLLAMA_NUM_CTX:-32768}"
 
 MODE="exec" # "exec" または "api"
 ACTION="pull" # "pull" または "delete" または "list"
@@ -252,18 +253,53 @@ check_model_supports_tools() {
   return 1
 }
 
-# tools のサポートが無い場合に Modelfile を適用して再作成する関数
+# モデルのコンテキスト長 (num_ctx) が十分か確認する関数
+check_model_context_size() {
+  local model="$1"
+  local target_ctx="${OLLAMA_NUM_CTX:-32768}"
+
+  local show_output
+  show_output=$(kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama show --modelfile "${model}" 2>/dev/null || true)
+  local current_ctx
+  current_ctx=$(echo "${show_output}" | grep -E "^PARAMETER[[:space:]]+num_ctx[[:space:]]+" | awk '{print $3}' | head -n 1 || true)
+
+  if [[ -n "${current_ctx}" && "${current_ctx}" =~ ^[0-9]+$ ]]; then
+    if (( current_ctx >= target_ctx )); then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# tools のサポートおよび十分なコンテキスト長 (OLLAMA_NUM_CTX) を保証・再作成する関数
 ensure_tools_support() {
   local model="$1"
+  local target_ctx="${OLLAMA_NUM_CTX:-32768}"
 
-  log "モデル '${model}' の tools (関数呼び出し) 対応状況を確認中..."
+  local tools_ok=false
+  local ctx_ok=false
+
+  log "モデル '${model}' の tools 対応およびコンテキスト長 (目標: ${target_ctx}) を確認中..."
   if check_model_supports_tools "${model}"; then
-    succ "モデル '${model}' は既に tools (関数呼び出し) に対応しています。"
+    tools_ok=true
+  fi
+  if check_model_context_size "${model}"; then
+    ctx_ok=true
+  fi
+
+  if [[ "${tools_ok}" == true && "${ctx_ok}" == true ]]; then
+    succ "モデル '${model}' は既に tools 対応かつ十分なコンテキスト長 (>= ${target_ctx}) を備えています。"
     return 0
   fi
 
-  warn "モデル '${model}' は tools (関数呼び出し) に対応していません。"
-  log "tools サポート用 Modelfile を適用し、モデル '${model}' を再作成します..."
+  local reasons=()
+  [[ "${tools_ok}" == false ]] && reasons+=("tools未対応")
+  [[ "${ctx_ok}" == false ]] && reasons+=("コンテキスト長不足")
+  local reason_str="${reasons[*]}"
+
+  warn "モデル '${model}' は最適化が必要です (${reason_str// /, })。"
+  log "最適化用 Modelfile (tools サポート + num_ctx ${target_ctx}) を適用し、モデル '${model}' を再作成します..."
 
   local tmp_modelfile="/tmp/Modelfile.tools.$$"
   local local_tmp
@@ -271,6 +307,10 @@ ensure_tools_support() {
 
   cat << EOF > "${local_tmp}"
 FROM ${model}
+
+PARAMETER num_ctx ${target_ctx}
+PARAMETER stop <|im_start|>
+PARAMETER stop <|im_end|>
 
 EOF
   cat << 'EOF' >> "${local_tmp}"
@@ -332,11 +372,11 @@ EOF
     log "Pod 内で 'ollama create ${model} -f Modelfile' を実行中..."
     if kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- ollama create "${model}" -f "${tmp_modelfile}"; then
       kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- rm -f "${tmp_modelfile}" 2>/dev/null || true
-      succ "モデル '${model}' に tools サポートを正常に追加・適用しました。"
+      succ "モデル '${model}' に tools サポートおよびコンテキスト長 ${target_ctx} を正常に適用しました。"
       return 0
     else
       kubectl exec -i -n "${OLLAMA_NAMESPACE}" deployment/ollama -- rm -f "${tmp_modelfile}" 2>/dev/null || true
-      err "モデル '${model}' への tools サポート追加 (ollama create) に失敗しました。"
+      err "モデル '${model}' への最適化適用 (ollama create) に失敗しました。"
       return 1
     fi
   else

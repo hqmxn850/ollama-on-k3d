@@ -274,6 +274,7 @@ ollama_default_model: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL') | default('Field
 ollama_default_model_auto_setup: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_AUTO_SETUP') | default(true, true) | bool }}"
 ollama_default_model_setup_retries: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_SETUP_RETRIES') | default(30, true) | int }}"
 ollama_default_model_setup_retry_interval: "{{ lookup('env', 'OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL') | default(2, true) | int }}"
+ollama_num_ctx: "{{ lookup('env', 'OLLAMA_NUM_CTX') | default(32768, true) | int }}"
 
 # OnnxRuntime GenAI (OGA) LLM / SLM サービス設定 (Worker ノード配置)
 oga_enabled: "{{ lookup('env', 'OGA_ENABLED') | default(true, true) | bool }}"
