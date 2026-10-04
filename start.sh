@@ -1015,9 +1015,81 @@ class Tools:
             await Tools.insert_new_tool(admin_id, form, specs=specs)
             print("Created web_search tool successfully")
 
+        # Configure default model with toolIds
+        try:
+            from open_webui.models.models import Models, ModelForm, ModelMeta, ModelParams
+            default_model = await Config.get("ui.default_models")
+            if default_model:
+                for mid in default_model.split(","):
+                    mid = mid.strip()
+                    if mid:
+                        mform = ModelForm(
+                            id=mid,
+                            base_model_id=None,
+                            name=mid,
+                            meta=ModelMeta(
+                                description=f"{mid} with Web Search capabilities",
+                                capabilities={"tools": True, "web_search": True},
+                                toolIds=["web_search"]
+                            ),
+                            params=ModelParams(),
+                            access_grants=[],
+                            is_active=True
+                        )
+                        m_exist = await Models.get_model_by_id(mid)
+                        if m_exist:
+                            await Models.update_model_by_id(mid, mform)
+                        elif admin_id:
+                            await Models.insert_new_model(mform, admin_id)
+                        print(f"Configured model {mid} with default toolIds: ['web_search']")
+        except Exception as e:
+            print(f"Warning: Failed to configure default model with toolIds: {e}")
+
     asyncio.run(register_tool())
 except Exception as e:
     print(f"Warning: Failed to register web_search tool: {e}")
+
+# Patch frontend to enable Web Search (globe icon) by default
+try:
+    import glob
+    js_files = glob.glob("/app/build/_app/immutable/chunks/*.js")
+    for js_path in js_files:
+        with open(js_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        if "webSearchEnabled" in content:
+            new_content, count = re.subn(r'("webSearchEnabled",\s*\d+,\s*)!1', r'\g<1>!0', content)
+            if count > 0:
+                with open(js_path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                print(f"Patched {count} webSearchEnabled defaults to true in {os.path.basename(js_path)}")
+except Exception as e:
+    print(f"Warning: Failed to patch frontend webSearchEnabled defaults: {e}")
+
+# Patch backend middleware to auto-enable web_search and inherit toolIds
+try:
+    mw_path = "/app/backend/open_webui/utils/middleware.py"
+    if os.path.exists(mw_path):
+        with open(mw_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        changed = False
+        mw_target1 = "    features = form_data.pop('features', None) or {}\n    extra_params['__features__'] = features"
+        mw_repl1 = "    features = form_data.pop('features', None) or {}\n    if 'web_search' not in features and await Config.get('web.search.enable'):\n        features['web_search'] = True\n    extra_params['__features__'] = features"
+        if mw_target1 in content:
+            content = content.replace(mw_target1, mw_repl1)
+            changed = True
+
+        mw_target2 = "        # Server side tools\n        tool_ids = metadata.get('tool_ids', None)"
+        mw_repl2 = "        # Server side tools\n        tool_ids = metadata.get('tool_ids', None)\n        if not tool_ids and task_model_id in models:\n            tool_ids = list(models[task_model_id].get('info', {}).get('meta', {}).get('toolIds') or [])"
+        if mw_target2 in content:
+            content = content.replace(mw_target2, mw_repl2)
+            changed = True
+
+        if changed:
+            with open(mw_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print("Patched backend middleware for default web_search and toolIds")
+except Exception as e:
+    print(f"Warning: Failed to patch backend middleware: {e}")
 PYEOF
         then
           succ "Open WebUI の標準設定を更新しました (モデル: ${REGISTERED_MODEL:-未設定}, ロケール: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP})"
