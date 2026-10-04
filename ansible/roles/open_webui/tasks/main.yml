@@ -413,10 +413,15 @@
               if ".setIncludeFolders(!1)" in content:
                   content = content.replace(".setIncludeFolders(!1)", ".setIncludeFolders(!0)")
                   c_changed = True
+              mime_target = "application/pdf,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              mime_repl = "application/pdf,text/plain,text/csv,application/csv,text/x-csv,text/comma-separated-values,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/markdown,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              if mime_target in content:
+                  content = content.replace(mime_target, mime_repl)
+                  c_changed = True
               if c_changed:
                   with open(js_path, "w", encoding="utf-8") as f:
                       f.write(content)
-                  print(f"Patched webSearchEnabled and Google Drive setIncludeFolders in {os.path.basename(js_path)}")
+                  print(f"Patched webSearchEnabled, Google Drive folders, and CSV MIME types in {os.path.basename(js_path)}")
       except Exception as e:
           print(f"Warning: Failed to patch frontend defaults: {e}")
 
