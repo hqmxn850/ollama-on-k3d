@@ -233,6 +233,23 @@ extraResources:
                 print("Successfully patched index.html language and loader in entrypoint")
         except Exception as e:
             print(f"Warning: Failed to patch index.html in entrypoint: {e}")
+
+        # 6. フロントエンド SvelteKit 初期化ロケール自動強制同期パッチ (英語フォールバック回避)
+        try:
+            import glob
+            files = glob.glob("/app/build/_app/immutable/nodes/0.*.js")
+            target = '!localStorage.locale){const f=await po(),_=navigator.languages?navigator.languages:[navigator.language||navigator.userLanguage],te=J!=null&&J.default_locale?J.default_locale:So(f,_,"en-US");await ho(te),Io.locale(te)}'
+            repl = '(!localStorage.locale||localStorage.locale==="en-US"||localStorage.locale==="en"||localStorage.locale==="{{ open_webui_default_locale | default("ja-JP") }}")){const f=await po(),_=navigator.languages?navigator.languages:[navigator.language||navigator.userLanguage],te=J!=null&&J.default_locale?J.default_locale:"{{ open_webui_default_locale | default("ja-JP") }}";localStorage.setItem("locale",te);await ho(te),Io.locale(te)}'
+            for f in files:
+                with open(f, "r", encoding="utf-8") as fp:
+                    c = fp.read()
+                if target in c:
+                    c = c.replace(target, repl)
+                    with open(f, "w", encoding="utf-8") as fp:
+                        fp.write(c)
+                    print(f"Successfully patched frontend locale enforcement in {os.path.basename(f)}")
+        except Exception as e:
+            print(f"Warning: Failed to patch frontend locale in entrypoint: {e}")
         PYEOF
 
         exec bash /app/backend/start.sh "$@"
@@ -259,12 +276,20 @@ extraResources:
               document.documentElement.setAttribute('lang', defaultLocale);
             }
 
-            // 地球儀アイコン (Web 検索) の常時有効化 (always) 同期
+            // ユーザー設定 (settings) の locale & webSearch 同期
             var rawSettings = localStorage.getItem('settings');
             var settings = rawSettings ? JSON.parse(rawSettings) : {};
             if (!settings.ui) settings.ui = {};
+            var settingsUpdated = false;
+            if (!settings.ui.locale || settings.ui.locale === 'en-US' || settings.ui.locale === 'en') {
+              settings.ui.locale = defaultLocale;
+              settingsUpdated = true;
+            }
             if (settings.ui.webSearch !== 'always') {
               settings.ui.webSearch = 'always';
+              settingsUpdated = true;
+            }
+            if (settingsUpdated) {
               localStorage.setItem('settings', JSON.stringify(settings));
             }
           } catch (e) {

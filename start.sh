@@ -989,6 +989,23 @@ except Exception as e:
 
 try:
     import glob
+    files = glob.glob("/app/build/_app/immutable/nodes/0.*.js")
+    target = '!localStorage.locale){const f=await po(),_=navigator.languages?navigator.languages:[navigator.language||navigator.userLanguage],te=J!=null&&J.default_locale?J.default_locale:So(f,_,"en-US");await ho(te),Io.locale(te)}'
+    repl = f'(!localStorage.locale||localStorage.locale==="en-US"||localStorage.locale==="en"||localStorage.locale==="{locale}")){{const f=await po(),_=navigator.languages?navigator.languages:[navigator.language||navigator.userLanguage],te=J!=null&&J.default_locale?J.default_locale:"{locale}";localStorage.setItem("locale",te);await ho(te),Io.locale(te)}}'
+    for f in files:
+        with open(f, "r", encoding="utf-8") as fp:
+            c = fp.read()
+        if target in c:
+            c = c.replace(target, repl)
+            with open(f, "w", encoding="utf-8") as fp:
+                fp.write(c)
+            print(f"Patched frontend locale enforcement in {os.path.basename(f)}")
+except Exception as e:
+    print(f"Warning: Failed to patch frontend locale: {e}")
+
+
+try:
+    import glob
     from open_webui.models.functions import Functions, FunctionForm, FunctionMeta
     from open_webui.models.tools import Tools, ToolForm, ToolMeta
     from open_webui.models.users import Users
