@@ -103,6 +103,22 @@ elif [[ -x "$TRUST_CA_SCRIPT" ]]; then
   fi
 fi
 
+# --- 3.5 ホスト FastFlowLM サービスの停止 ---
+if [[ "$IS_DRY_RUN" != "1" && "${NPU_FLM_ENABLED:-true}" == true ]]; then
+  log "FastFlowLM サービスを確認・停止中..."
+  for pidfile in /tmp/flm_serve_*.pid /tmp/flm_serve.pid; do
+    if [[ -f "$pidfile" ]]; then
+      FLM_PID="$(cat "$pidfile" 2>/dev/null || true)"
+      if [[ -n "$FLM_PID" ]] && kill -0 "$FLM_PID" 2>/dev/null; then
+        log "FastFlowLM プロセス (PID: ${FLM_PID}) を終了中..."
+        kill "$FLM_PID" 2>/dev/null || true
+      fi
+      rm -f "$pidfile"
+    fi
+  done
+  pkill -f "flm serve" 2>/dev/null || true
+fi
+
 # --- 4. Ansible 向け extra-vars (JSON) 生成 ---
 # 実ユーザーのホームディレクトリを確実に特定 (sudo 実行時対応)
 if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then

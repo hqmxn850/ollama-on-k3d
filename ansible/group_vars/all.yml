@@ -295,6 +295,12 @@ oga_startup_timeout_seconds: "{{ lookup('env', 'OGA_STARTUP_TIMEOUT_SECONDS') | 
 oga_startup_failure_threshold: "{{ lookup('env', 'OGA_STARTUP_FAILURE_THRESHOLD') | default(30, true) | int }}"
 oga_startup_period_seconds: "{{ lookup('env', 'OGA_STARTUP_PERIOD_SECONDS') | default(10, true) | int }}"
 
+# AMD NPU 推論エンジン (FastFlowLM / FLM) 設定
+npu_flm_enabled: "{{ lookup('env', 'NPU_FLM_ENABLED') | default(true, true) | bool }}"
+npu_flm_port: "{{ lookup('env', 'NPU_FLM_PORT') | default(52625, true) | int }}"
+npu_flm_default_model: "{{ lookup('env', 'NPU_FLM_DEFAULT_MODEL') | default('qwen3:0.6b', true) }}"
+npu_flm_host_ip: "{{ lookup('env', 'NPU_FLM_HOST_IP') | default(podman_network_gateway | default('10.89.0.1'), true) }}"
+
 # Open WebUI (Local AI Web チャット基盤) 設定 (Worker ノード配置)
 open_webui_enabled: "{{ lookup('env', 'OPEN_WEBUI_ENABLED') | default(true, true) | bool }}"
 open_webui_chart_version: "{{ lookup('env', 'OPEN_WEBUI_CHART_VERSION') | default('16.6.0', true) }}"

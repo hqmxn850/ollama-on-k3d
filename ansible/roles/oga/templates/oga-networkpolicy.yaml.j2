@@ -79,3 +79,12 @@ spec:
           port: {{ http_port | default(80) }}
         - protocol: TCP
           port: {{ https_port | default(443) }}
+
+    # 4. ホスト NPU 推論エンジン (FastFlowLM / FLM) への接続許可
+    - to:
+        - ipBlock:
+            cidr: {{ npu_flm_host_ip | default('10.89.0.1') }}/32
+      ports:
+        - protocol: TCP
+          port: {{ npu_flm_port | default(52625) }}
+

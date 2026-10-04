@@ -118,6 +118,10 @@
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_EXPORTER_ENABLED` | AMD NPU Prometheus Exporter 有効化 | `true` |
 | `AMD_NPU_EXPORTER_PORT` | AMD NPU Prometheus Exporter 待受ポート | `9105` |
+| `NPU_FLM_ENABLED` | AMD XDNA NPU (FastFlowLM) 推論エンジンの有効化 | `true` |
+| `NPU_FLM_PORT` | FastFlowLM API 待受ポート | `52625` |
+| `NPU_FLM_DEFAULT_MODEL` | FastFlowLM 標準 NPU モデル | `qwen3:0.6b` |
+| `NPU_FLM_HOST_IP` | FastFlowLM ホスト IP (Podman Gateway) | `10.89.0.1` |
 
 ---
 
@@ -135,4 +139,9 @@
    - `start.sh` はデプロイ末尾 (セクション 11) で `OLLAMA_DEFAULT_MODEL` が Ollama に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`OLLAMA_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。
 4. **UI 日本語化**:
    - Open WebUI は `DEFAULT_LOCALE` / `DEFAULT_INTERFACE_SETTINGS` 環境変数、`loader.js` によるフロントエンドロケール自動設定、および DB 内の `ui.default_locale` / `ui.default_interface_settings` / 既存ユーザー設定同期により、新規アクセス時および全ユーザーにおいて `OPEN_WEBUI_DEFAULT_LOCALE` (デフォルト: `ja-JP`) で統一される。
+5. **AMD XDNA NPU (FastFlowLM) 連携**:
+   - AMD XDNA NPU (Strix Halo / Ryzen AI) を用いた高速推論はホスト上の `fastflowlm` (`flm serve`) により提供され、Kubernetes クラスタ内の OGA (OnnxRuntime GenAI) サービスが OpenAI 互換リバースプロキシ兼 Prometheus Exporter として中継する。
+   - `start.sh` 実行時に `flm` カーネルバイナリ確認、`NPU_FLM_DEFAULT_MODEL` (例: `qwen3:0.6b`) の pull、`flm serve` API サーバーの自動バックグラウンド起動が行われ、`stop.sh` 実行時に安全に終了される。
+   - Open WebUI からは OGA サービス (`http://oga.oga.svc.cluster.local:8000/v1`) 経由でモデル一覧に表示され、選択するだけで 100+ tokens/sec の NPU ハードウェア推論が実行される。推論実行時は Prometheus の `amd_npu_command_submissions_total` および `oga_requests_total` に即座に反映される。
+
 

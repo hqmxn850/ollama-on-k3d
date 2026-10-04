@@ -28,53 +28,38 @@ data:
   entrypoint.sh: |
     #!/usr/bin/env bash
     set -e
-    echo "[OGA] Initializing OnnxRuntime GenAI server environment..."
+    echo "[OGA] Initializing OnnxRuntime GenAI & NPU Gateway environment..."
     export PIP_CACHE_DIR=/models/.cache/pip
     mkdir -p /models/.cache/pip
-    if ! python3 -c "import onnxruntime_genai, fastapi, uvicorn" 2>/dev/null; then
-      echo "[OGA] Installing onnxruntime-genai, fastapi, uvicorn..."
-      pip install --cache-dir /models/.cache/pip onnxruntime-genai fastapi uvicorn
+    if ! python3 -c "import httpx, fastapi, uvicorn" 2>/dev/null; then
+      echo "[OGA] Installing httpx, fastapi, uvicorn..."
+      pip install --cache-dir /models/.cache/pip httpx fastapi uvicorn
     fi
     echo "[OGA] Starting Uvicorn API server on port ${OGA_PORT:-8000}..."
     cd /app
     exec uvicorn server:app --host 0.0.0.0 --port "${OGA_PORT:-8000}"
 
   server.py: |
+{% raw %}
     import os
-    import glob
-    from typing import List, Optional
-    from fastapi import FastAPI, HTTPException
-    from fastapi.responses import Response
-    from pydantic import BaseModel
-    import onnxruntime_genai as og
+    import json
+    import logging
+    from typing import List, Optional, Any
+    from fastapi import FastAPI, HTTPException, Request
+    from fastapi.responses import Response, StreamingResponse
+    import httpx
 
-    app = FastAPI(title="OnnxRuntime GenAI (OGA) Server", version="0.17.1")
+    app = FastAPI(title="OGA & FastFlowLM NPU Gateway", version="1.0.0")
 
+    NPU_FLM_URL = os.environ.get("NPU_FLM_URL", "").rstrip("/")
+    NPU_DEFAULT_MODEL = os.environ.get("NPU_DEFAULT_MODEL", "qwen3:0.6b")
     MODELS_DIR = os.environ.get("MODELS_DIR", "/models")
 
-    # メトリクスカウンタ
     request_counter = 0
     tokens_counter = 0
+    http_client = httpx.AsyncClient(timeout=120.0)
 
-    class ChatMessage(BaseModel):
-        role: str
-        content: str
-
-    class ChatCompletionRequest(BaseModel):
-        model: str
-        messages: List[ChatMessage]
-        max_tokens: Optional[int] = 512
-        temperature: Optional[float] = 0.7
-        top_p: Optional[float] = 0.9
-
-    class GenerateRequest(BaseModel):
-        model: Optional[str] = None
-        prompt: str
-        max_tokens: Optional[int] = 512
-
-    loaded_models = {}
-
-    def get_available_models():
+    def get_local_onnx_models():
         models = []
         if os.path.exists(MODELS_DIR):
             for entry in os.listdir(MODELS_DIR):
@@ -88,27 +73,29 @@ data:
 
     @app.get("/")
     @app.get("/health")
-    def health():
+    async def health():
+        flm_status = "disabled"
+        if NPU_FLM_URL:
+            try:
+                r = await http_client.get(f"{NPU_FLM_URL}/v1/models", timeout=3.0)
+                flm_status = "healthy" if r.status_code == 200 else f"unhealthy ({r.status_code})"
+            except Exception as e:
+                flm_status = f"unreachable: {str(e)}"
         return {
             "status": "ok",
-            "service": "OnnxRuntime GenAI (OGA)",
-            "version": og.__version__,
-            "available_models": get_available_models()
+            "service": "OnnxRuntime GenAI (OGA) & NPU Gateway",
+            "npu_backend": flm_status,
+            "default_npu_model": NPU_DEFAULT_MODEL,
+            "local_onnx_models": get_local_onnx_models()
         }
 
     @app.get("/metrics")
-    def metrics():
+    async def metrics():
         lines = [
             "# HELP oga_up Whether OGA service is running (1) or down (0)",
             "# TYPE oga_up gauge",
             "oga_up 1",
-            'oga_build_info{version="%s"} 1' % getattr(og, '__version__', 'unknown'),
-            "# HELP oga_models_total Total number of ONNX models stored in /models",
-            "# TYPE oga_models_total gauge",
-            f"oga_models_total {len(get_available_models())}",
-            "# HELP oga_loaded_models_total Total number of models currently loaded in memory",
-            "# TYPE oga_loaded_models_total gauge",
-            f"oga_loaded_models_total {len(loaded_models)}",
+            f'oga_backend_info{{type="fastflowlm",url="{NPU_FLM_URL}",model="{NPU_DEFAULT_MODEL}"}} 1',
             "# HELP oga_requests_total Total number of inference requests",
             "# TYPE oga_requests_total counter",
             f"oga_requests_total {request_counter}",
@@ -116,98 +103,98 @@ data:
             "# TYPE oga_generated_tokens_total counter",
             f"oga_generated_tokens_total {tokens_counter}",
         ]
-        for m in get_available_models():
-            is_loaded = 1 if m in loaded_models else 0
-            lines.append('oga_model_info{model="%s",loaded="%s"} 1' % (m, is_loaded))
         content = "\n".join(lines) + "\n"
         return Response(content=content, media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/v1/models")
-    def list_models():
-        models = get_available_models()
-        data = []
-        for m in models:
-            data.append({
-                "id": m,
+    async def list_models():
+        models_data = []
+        if NPU_FLM_URL:
+            models_data.append({
+                "id": NPU_DEFAULT_MODEL,
                 "object": "model",
-                "owned_by": "oga",
+                "owned_by": "FastFlowLM-NPU",
                 "permission": []
             })
-        if not data:
-            data.append({
-                "id": "onnxruntime-genai-default",
+        for m in get_local_onnx_models():
+            if m != NPU_DEFAULT_MODEL:
+                models_data.append({
+                    "id": m,
+                    "object": "model",
+                    "owned_by": "oga-local",
+                    "permission": []
+                })
+        if not models_data:
+            models_data.append({
+                "id": NPU_DEFAULT_MODEL,
                 "object": "model",
-                "owned_by": "oga",
+                "owned_by": "npu",
                 "permission": []
             })
-        return {"object": "list", "data": data}
+        return {"object": "list", "data": models_data}
 
     @app.post("/v1/chat/completions")
-    def chat_completions(req: ChatCompletionRequest):
+    async def chat_completions(request: Request):
         global request_counter, tokens_counter
         request_counter += 1
-        model_name = req.model
-        model_path = os.path.join(MODELS_DIR, model_name)
-        prompt = ""
-        for msg in req.messages:
-            prompt += f"<|{msg.role}|>\n{msg.content}\n"
-        prompt += "<|assistant|>\n"
+        body = await request.json()
 
-        if os.path.exists(model_path):
-            try:
-                if model_name not in loaded_models:
-                    model = og.Model(model_path)
-                    tokenizer = og.Tokenizer(model)
-                    loaded_models[model_name] = (model, tokenizer)
-                else:
-                    model, tokenizer = loaded_models[model_name]
+        if not body.get("model") or body.get("model") in ["default", "oga", "npu"]:
+            body["model"] = NPU_DEFAULT_MODEL
 
-                tokens = tokenizer.encode(prompt)
-                params = og.GeneratorParams(model)
-                params.set_search_options(max_length=req.max_tokens or 512)
-                params.input_ids = tokens
+        is_stream = body.get("stream", False)
 
-                generator = og.Generator(model, params)
-                output_tokens = []
-                while not generator.is_done():
-                    generator.compute_logits()
-                    generator.generate_next_token()
-                    output_tokens.append(generator.get_next_tokens()[0])
+        if NPU_FLM_URL:
+            target_url = f"{NPU_FLM_URL}/v1/chat/completions"
+            if is_stream:
+                async def event_generator():
+                    global tokens_counter
+                    try:
+                        req = http_client.build_request("POST", target_url, json=body, timeout=120.0)
+                        r = await http_client.send(req, stream=True)
+                        async for chunk in r.aiter_bytes():
+                            tokens_counter += 1
+                            yield chunk
+                    except Exception as e:
+                        yield f"data: {{\"error\": \"NPU proxy error: {str(e)}\"}}\n\n".encode()
+                return StreamingResponse(event_generator(), media_type="text/event-stream")
+            else:
+                try:
+                    r = await http_client.post(target_url, json=body, timeout=120.0)
+                    data = r.json()
+                    if "usage" in data and "completion_tokens" in data["usage"]:
+                        tokens_counter += data["usage"]["completion_tokens"]
+                    return data
+                except Exception as e:
+                    raise HTTPException(status_code=502, detail=f"Failed to communicate with NPU backend: {str(e)}")
 
-                tokens_counter += len(output_tokens)
-                response_text = tokenizer.decode(output_tokens)
-            except Exception as e:
-                raise HTTPException(status_code=500, detail=f"OGA inference error: {str(e)}")
-        else:
-            avail = get_available_models()
-            response_text = (
-                f"[OnnxRuntime GenAI (OGA)] Model '{model_name}' is not currently present in {MODELS_DIR}. "
-                f"Available models: {avail}. "
-                f"Please download or mount an ONNX GenAI model into {MODELS_DIR} to perform inference."
-            )
-            tokens_counter += len(response_text.split())
-
-        return {
-            "id": "chatcmpl-oga",
-            "object": "chat.completion",
-            "model": model_name,
-            "choices": [{
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": response_text
-                },
-                "finish_reason": "stop"
-            }]
-        }
+        raise HTTPException(status_code=503, detail="No NPU backend configured and local ONNX model not found")
 
     @app.post("/api/generate")
-    def generate(req: GenerateRequest):
+    async def generate(request: Request):
         global request_counter, tokens_counter
         request_counter += 1
-        tokens_counter += 10
-        return {"response": f"OGA Engine (v{og.__version__}) ready. Prompt received: {req.prompt[:50]}..."}
+        body = await request.json()
+        prompt = body.get("prompt", "")
+        model = body.get("model", NPU_DEFAULT_MODEL)
 
+        chat_payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        if NPU_FLM_URL:
+            try:
+                r = await http_client.post(f"{NPU_FLM_URL}/v1/chat/completions", json=chat_payload, timeout=120.0)
+                data = r.json()
+                resp_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                tokens_counter += data.get("usage", {}).get("completion_tokens", 10)
+                return {"response": resp_text, "model": model, "done": True}
+            except Exception as e:
+                return {"response": f"NPU error: {str(e)}", "done": True}
+
+        return {"response": f"OGA Gateway ready. Prompt: {prompt[:50]}...", "done": True}
+{% endraw %}
 
 ---
 # 3. Deployment
@@ -221,6 +208,8 @@ metadata:
     app.kubernetes.io/instance: oga
 spec:
   replicas: {{ oga_replicas | default(1) }}
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: oga
@@ -247,6 +236,10 @@ spec:
               value: "/models"
             - name: OGA_PORT
               value: "{{ oga_port | default(8000) }}"
+            - name: NPU_FLM_URL
+              value: "{{ 'http://' ~ npu_flm_host_ip ~ ':' ~ npu_flm_port if (npu_flm_enabled | default(true) | bool) else '' }}"
+            - name: NPU_DEFAULT_MODEL
+              value: "{{ npu_flm_default_model | default('qwen3:0.6b') }}"
           resources:
             requests:
               cpu: {{ oga_cpu_request | default('500m') | quote }}

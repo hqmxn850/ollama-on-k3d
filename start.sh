@@ -263,6 +263,10 @@ EXTRA_VARS=$(jq -n \
   --argjson oga_startup_timeout_seconds "${OGA_STARTUP_TIMEOUT_SECONDS:-5}" \
   --argjson oga_startup_failure_threshold "${OGA_STARTUP_FAILURE_THRESHOLD:-30}" \
   --argjson oga_startup_period_seconds "${OGA_STARTUP_PERIOD_SECONDS:-10}" \
+  --argjson npu_flm_enabled "${NPU_FLM_ENABLED:-true}" \
+  --argjson npu_flm_port "${NPU_FLM_PORT:-52625}" \
+  --arg npu_flm_default_model "${NPU_FLM_DEFAULT_MODEL:-qwen3:0.6b}" \
+  --arg npu_flm_host_ip "${NPU_FLM_HOST_IP:-10.89.0.1}" \
   --argjson open_webui_enabled "${OPEN_WEBUI_ENABLED:-true}" \
   --arg open_webui_chart_version "${OPEN_WEBUI_CHART_VERSION:-16.6.0}" \
   --arg open_webui_image_tag "${OPEN_WEBUI_IMAGE_TAG:-v0.11.4}" \
@@ -471,6 +475,10 @@ EXTRA_VARS=$(jq -n \
     oga_startup_timeout_seconds: $oga_startup_timeout_seconds,
     oga_startup_failure_threshold: $oga_startup_failure_threshold,
     oga_startup_period_seconds: $oga_startup_period_seconds,
+    npu_flm_enabled: $npu_flm_enabled,
+    npu_flm_port: $npu_flm_port,
+    npu_flm_default_model: $npu_flm_default_model,
+    npu_flm_host_ip: $npu_flm_host_ip,
     open_webui_enabled: $open_webui_enabled,
     open_webui_chart_version: $open_webui_chart_version,
     open_webui_image_tag: $open_webui_image_tag,
@@ -559,6 +567,62 @@ log "  - open-webui:         ${OPEN_WEBUI_CHART_VERSION:-16.6.0}"
 if [[ -f "${ANSIBLE_DIR}/requirements.yml" ]]; then
   log "Ansible 依存コレクションを確認中..."
   ansible-galaxy collection install -r "${ANSIBLE_DIR}/requirements.yml" --quiet 2>/dev/null || true
+fi
+
+# 実ユーザーおよびホームディレクトリを特定 (sudo 実行時対応)
+if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+  ACTUAL_USER="${SUDO_USER}"
+  ACTUAL_USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6 2>/dev/null || echo "/home/${SUDO_USER}")
+else
+  ACTUAL_USER="$(whoami)"
+  ACTUAL_USER_HOME="${HOME:-/home/$(whoami)}"
+fi
+
+# --- 4.5 AMD XDNA NPU (FastFlowLM) サービスの起動 (有効時) ---
+if [[ "$CHECK_MODE" == false && "${NPU_FLM_ENABLED:-true}" == true ]]; then
+  if command -v flm >/dev/null 2>&1; then
+    log "AMD XDNA NPU (FastFlowLM) の状態を確認中..."
+    if [[ ! -d "/opt/fastflowlm/lib" ]]; then
+      log "FastFlowLM NPU カーネルが見つからないため取得中 (sudo flm-fetch-kernels)..."
+      sudo flm-fetch-kernels || warn "flm-fetch-kernels に失敗しました"
+    fi
+    FLM_MODEL="${NPU_FLM_DEFAULT_MODEL:-qwen3:0.6b}"
+    FLM_CMD=(flm)
+    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+      FLM_CMD=(sudo -u "${SUDO_USER}" HOME="${ACTUAL_USER_HOME}" flm)
+    fi
+
+    if ! "${FLM_CMD[@]}" list --filter installed 2>/dev/null | grep -q "${FLM_MODEL}"; then
+      log "FastFlowLM モデル (${FLM_MODEL}) をダウンロード中..."
+      "${FLM_CMD[@]}" pull "${FLM_MODEL}" || warn "FastFlowLM モデルの pull に失敗しました: ${FLM_MODEL}"
+    fi
+
+    FLM_PORT="${NPU_FLM_PORT:-52625}"
+    if ! curl -s "http://127.0.0.1:${FLM_PORT}/v1/models" >/dev/null 2>&1; then
+      log "FastFlowLM API サーバーをポート ${FLM_PORT} で起動中..."
+      PID_FILE="/tmp/flm_serve_${ACTUAL_USER}.pid"
+      LOG_FILE="/tmp/flm_serve_${ACTUAL_USER}.log"
+      nohup "${FLM_CMD[@]}" serve "${FLM_MODEL}" --host 0.0.0.0 --port "${FLM_PORT}" > "${LOG_FILE}" 2>&1 &
+      echo $! > "${PID_FILE}"
+
+      FLM_STARTED=false
+      for _i in $(seq 1 15); do
+        if curl -s "http://127.0.0.1:${FLM_PORT}/v1/models" >/dev/null 2>&1; then
+          FLM_STARTED=true
+          succ "FastFlowLM API サーバーが正常に起動しました (ポート: ${FLM_PORT}, モデル: ${FLM_MODEL})"
+          break
+        fi
+        sleep 1
+      done
+      if [[ "$FLM_STARTED" == false ]]; then
+        warn "FastFlowLM API サーバーの起動確認がタイムアウトしました。ログを確認してください: ${LOG_FILE}"
+      fi
+    else
+      log "FastFlowLM API サーバーは既に稼働中です (ポート: ${FLM_PORT})"
+    fi
+  else
+    warn "flm コマンドが見つかりません。NPU 推論はスキップされます。"
+  fi
 fi
 
 # --- 5. Ansible Playbook 実行 ---
