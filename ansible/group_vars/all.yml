@@ -330,6 +330,8 @@ open_webui_web_search_enabled: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_ENABLED'
 open_webui_web_search_engine: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_ENGINE') | default('duckduckgo', true) }}"
 open_webui_web_search_result_count: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT') | default(3, true) | int }}"
 open_webui_web_search_concurrent_requests: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS') | default(10, true) | int }}"
+open_webui_web_search_bypass_web_loader: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_BYPASS_WEB_LOADER') | default(true, true) | bool }}"
+open_webui_web_search_bypass_embedding_and_retrieval: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_BYPASS_EMBEDDING_AND_RETRIEVAL') | default(true, true) | bool }}"
 
 # TCP/IP & カーネル・リソース チューニング設定
 sysctl_somaxconn: "{{ lookup('env', 'SYSCTL_SOMAXCONN') | default(65535, true) | int }}"

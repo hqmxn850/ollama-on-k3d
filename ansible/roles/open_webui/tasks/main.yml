@@ -64,7 +64,7 @@
   ansible.builtin.command: >-
     kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui --
     sh -c 'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$@"'
-    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}"
+    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}" "{{ open_webui_web_search_bypass_web_loader | default(true) | string }}" "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string }}"
   args:
     stdin: |
       import asyncio
@@ -86,6 +86,8 @@
           web_search_concurrent = int(sys.argv[5]) if len(sys.argv) > 5 else 10
       except Exception:
           web_search_concurrent = 10
+      bypass_web_loader = sys.argv[6] if len(sys.argv) > 6 else "True"
+      bypass_embedding = sys.argv[7] if len(sys.argv) > 7 else "True"
 
       asyncio.run(Config.upsert({
           "ui.default_locale": locale,
@@ -94,11 +96,16 @@
           "web.search.engine": web_search_engine,
           "web.search.result_count": web_search_count,
           "web.search.concurrent_requests": web_search_concurrent,
+          "web.search.bypass_web_loader": (bypass_web_loader.lower() == "true"),
+          "web.search.bypass_embedding_and_retrieval": (bypass_embedding.lower() == "true"),
+          "web.search.ddgs_backend": "auto",
       }))
       print("ui.default_locale =", asyncio.run(Config.get("ui.default_locale")))
       print("ui.default_interface_settings =", asyncio.run(Config.get("ui.default_interface_settings")))
       print("web.search.enable =", asyncio.run(Config.get("web.search.enable")))
       print("web.search.engine =", asyncio.run(Config.get("web.search.engine")))
+      print("web.search.bypass_web_loader =", asyncio.run(Config.get("web.search.bypass_web_loader")))
+      print("web.search.bypass_embedding_and_retrieval =", asyncio.run(Config.get("web.search.bypass_embedding_and_retrieval")))
 
       try:
           conn = sqlite3.connect("/app/backend/data/webui.db")
@@ -203,7 +210,13 @@ class Tools:
                   access_grants=[]
               )
               if existing:
-                  await Tools.update_tool_by_id(TOOL_ID, form, specs=specs)
+                  update_dict = {
+                      "name": TOOL_NAME,
+                      "content": TOOL_CONTENT,
+                      "specs": specs,
+                      "meta": {"description": TOOL_DESC}
+                  }
+                  await Tools.update_tool_by_id(TOOL_ID, update_dict)
                   print("Updated web_search tool successfully")
               elif admin_id:
                   await Tools.insert_new_tool(admin_id, form, specs=specs)

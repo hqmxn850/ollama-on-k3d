@@ -883,19 +883,22 @@ try:
 except Exception:
     web_search_concurrent = 10
 
-updates = {
-    "ui.default_locale": locale,
-    "ui.default_interface_settings": {"locale": locale},
-    "web.search.enable": (web_search_enabled.lower() == "true"),
-    "web.search.engine": web_search_engine,
-    "web.search.result_count": web_search_count,
-    "web.search.concurrent_requests": web_search_concurrent,
-}
-if model_id:
-    updates["ui.default_models"] = model_id
-    updates["ui.default_pinned_models"] = model_id
+    updates = {
+        "ui.default_locale": locale,
+        "ui.default_interface_settings": {"locale": locale},
+        "web.search.enable": (web_search_enabled.lower() == "true"),
+        "web.search.engine": web_search_engine,
+        "web.search.result_count": web_search_count,
+        "web.search.concurrent_requests": web_search_concurrent,
+        "web.search.bypass_web_loader": True,
+        "web.search.bypass_embedding_and_retrieval": True,
+        "web.search.ddgs_backend": "auto",
+    }
+    if model_id:
+        updates["ui.default_models"] = model_id
+        updates["ui.default_pinned_models"] = model_id
 
-asyncio.run(Config.upsert(updates))
+    asyncio.run(Config.upsert(updates))
 
 if model_id:
     print("ui.default_models =", asyncio.run(Config.get("ui.default_models")))
@@ -1009,7 +1012,13 @@ class Tools:
             access_grants=[]
         )
         if existing:
-            await Tools.update_tool_by_id(TOOL_ID, form, specs=specs)
+            update_dict = {
+                "name": TOOL_NAME,
+                "content": TOOL_CONTENT,
+                "specs": specs,
+                "meta": {"description": TOOL_DESC}
+            }
+            await Tools.update_tool_by_id(TOOL_ID, update_dict)
             print("Updated web_search tool successfully")
         elif admin_id:
             await Tools.insert_new_tool(admin_id, form, specs=specs)

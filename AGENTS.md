@@ -118,6 +118,8 @@
 | `OPEN_WEBUI_WEB_SEARCH_ENGINE` | Open WebUI Web 検索エンジン (duckduckgo / searxng 等) | `duckduckgo` |
 | `OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT` | Open WebUI Web 検索取得結果件数 | `3` |
 | `OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS` | Open WebUI Web 検索並列リクエスト数 | `10` |
+| `OPEN_WEBUI_WEB_SEARCH_BYPASS_WEB_LOADER` | Web 全文スクレイピングをバイパスし検索スニペット直接注入 (高速・耐障害性) | `true` |
+| `OPEN_WEBUI_WEB_SEARCH_BYPASS_EMBEDDING_AND_RETRIEVAL` | Web 検索時のベクトル Embedding 計算をバイパス | `true` |
 | `AMD_GPU_PLUGIN_ENABLED` | AMD GPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_EXPORTER_ENABLED` | AMD NPU Prometheus Exporter 有効化 | `true` |
