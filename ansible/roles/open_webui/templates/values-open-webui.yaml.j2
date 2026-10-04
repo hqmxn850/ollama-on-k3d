@@ -130,8 +130,12 @@ extraResources:
           try {
             var defaultLocale = {{ open_webui_default_locale | default('ja-JP') | to_json }};
             var currentLocale = localStorage.getItem('locale');
-            if (!currentLocale) {
+            // 未設定、または英語 (en-US, en, null, undefined) の場合はデフォルト日本語に同期
+            if (!currentLocale || currentLocale === 'en-US' || currentLocale === 'en') {
               localStorage.setItem('locale', defaultLocale);
+            }
+            if (document.documentElement) {
+              document.documentElement.setAttribute('lang', defaultLocale);
             }
           } catch (e) {
             console.error('Failed to initialize locale in loader.js:', e);

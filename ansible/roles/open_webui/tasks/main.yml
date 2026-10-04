@@ -69,6 +69,8 @@
     stdin: |
       import asyncio
       import json
+      import os
+      import re
       import sqlite3
       import sys
       from open_webui.models.config import Config
@@ -102,9 +104,24 @@
           conn.close()
       except Exception as e:
           print(f"Warning: Failed to update existing user settings: {e}")
+
+      try:
+          html_path = "/app/build/index.html"
+          if os.path.exists(html_path):
+              with open(html_path, "r", encoding="utf-8") as f:
+                  content = f.read()
+              content = re.sub(r'<html lang="[^"]*"', f'<html lang="{locale}"', content)
+              content = content.replace('src="/static/loader.js" defer', 'src="/static/loader.js"')
+              with open(html_path, "w", encoding="utf-8") as f:
+                  f.write(content)
+              print("Patched index.html language attribute and synchronous loader script")
+      except Exception as e:
+          print(f"Warning: Failed to patch index.html: {e}")
   register: open_webui_locale_setup
   changed_when: false
   retries: "{{ quick_retry_count | default(5) }}"
   delay: "{{ quick_retry_delay | default(3) }}"
   until: open_webui_locale_setup.rc == 0
+
+
 

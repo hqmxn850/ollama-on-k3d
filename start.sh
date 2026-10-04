@@ -815,6 +815,20 @@ try:
     conn.close()
 except Exception as e:
     print(f"Warning: Failed to update existing user settings: {e}")
+
+try:
+    import os, re
+    html_path = "/app/build/index.html"
+    if os.path.exists(html_path):
+        with open(html_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        content = re.sub(r'<html lang="[^"]*"', f'<html lang="{locale}"', content)
+        content = content.replace('src="/static/loader.js" defer', 'src="/static/loader.js"')
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        print("Patched index.html language attribute and synchronous loader script")
+except Exception as e:
+    print(f"Warning: Failed to patch index.html: {e}")
 PYEOF
         then
           succ "Open WebUI の標準設定を更新しました (モデル: ${REGISTERED_MODEL:-未設定}, ロケール: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP})"
