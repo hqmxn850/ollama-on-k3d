@@ -77,6 +77,10 @@ extraEnvVars:
     value: {{ open_webui_default_locale | default('ja-JP') | quote }}
   - name: DEFAULT_INTERFACE_SETTINGS
     value: '{"locale": {{ open_webui_default_locale | default("ja-JP") | to_json }}}'
+{% if open_webui_database_url | default('') | length > 0 %}
+  - name: DATABASE_URL
+    value: {{ open_webui_database_url | quote }}
+{% endif %}
   - name: WEBUI_AUTH
     value: "true"
   # Keycloak OIDC 認証設定

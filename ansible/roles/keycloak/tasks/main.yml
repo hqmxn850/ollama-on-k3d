@@ -55,9 +55,30 @@
   changed_when: "'CREATE DATABASE' in create_grafana_db.stdout"
   failed_when: false
 
+- name: Open WebUI 用 PostgreSQL ユーザーおよびデータベースを作成
+  ansible.builtin.shell: |
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
+    DO \$\$
+    BEGIN
+      IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '{{ open_webui_pg_user | default('openwebui') }}') THEN
+        CREATE ROLE {{ open_webui_pg_user | default('openwebui') }} WITH LOGIN ENCRYPTED PASSWORD '{{ open_webui_pg_password | default('openwebui-db-2026') }}';
+      ELSE
+        ALTER ROLE {{ open_webui_pg_user | default('openwebui') }} WITH ENCRYPTED PASSWORD '{{ open_webui_pg_password | default('openwebui-db-2026') }}';
+      END IF;
+    END
+    \$\$;
+    "
+    if ! kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname = '{{ open_webui_pg_database | default('openwebui') }}'" | grep -q 1; then
+      kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "CREATE DATABASE {{ open_webui_pg_database | default('openwebui') }} OWNER {{ open_webui_pg_user | default('openwebui') }};"
+    fi
+    kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ open_webui_pg_database | default('openwebui') }} TO {{ open_webui_pg_user | default('openwebui') }};"
+  register: create_open_webui_db
+  changed_when: "'CREATE DATABASE' in create_open_webui_db.stdout"
+  failed_when: false
+
 - name: 全データベースで監視・パフォーマンス拡張機能を有効化 (pg_stat_statements, pg_buffercache, pgstattuple, pg_prewarm, pg_walinspect)
   ansible.builtin.shell: |
-    for db in postgres template1 keycloak grafana; do
+    for db in postgres template1 keycloak grafana {{ open_webui_pg_database | default('openwebui') }}; do
       kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
         CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
         CREATE EXTENSION IF NOT EXISTS pg_buffercache;
@@ -77,7 +98,7 @@
     " || true
 
     # 2. 全データベースおよび template1 で system_stats 有効化 & pg_stat_file / pg_current_logfile の実行権限を付与 (pgAdmin 監視エラー防止)
-    for db in postgres template1 keycloak grafana; do
+    for db in postgres template1 keycloak grafana {{ open_webui_pg_database | default('openwebui') }}; do
       kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
         CREATE EXTENSION IF NOT EXISTS system_stats;
         CREATE EXTENSION IF NOT EXISTS pg_buffercache;

@@ -295,6 +295,10 @@ EXTRA_VARS=$(jq -n \
   --argjson open_webui_web_search_result_count "${OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT:-3}" \
   --argjson open_webui_web_search_concurrent_requests "${OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS:-10}" \
   --arg open_webui_cors_allow_origin "${OPEN_WEBUI_CORS_ALLOW_ORIGIN:-https://${OPEN_WEBUI_HOSTNAME:-chat.${EMAIL_DOMAIN}}}" \
+  --arg open_webui_db_type "${OPEN_WEBUI_DB_TYPE:-postgres}" \
+  --arg open_webui_pg_database "${OPEN_WEBUI_PG_DATABASE:-openwebui}" \
+  --arg open_webui_pg_user "${OPEN_WEBUI_PG_USER:-openwebui}" \
+  --arg open_webui_pg_password "${OPEN_WEBUI_PG_PASSWORD:-openwebui-db-2026}" \
   --argjson sysctl_somaxconn "${SYSCTL_SOMAXCONN:-65535}" \
   --argjson sysctl_tcp_max_syn_backlog "${SYSCTL_TCP_MAX_SYN_BACKLOG:-65535}" \
   --argjson sysctl_netdev_max_backlog "${SYSCTL_NETDEV_MAX_BACKLOG:-65535}" \
@@ -518,6 +522,10 @@ EXTRA_VARS=$(jq -n \
     open_webui_web_search_result_count: $open_webui_web_search_result_count,
     open_webui_web_search_concurrent_requests: $open_webui_web_search_concurrent_requests,
     open_webui_cors_allow_origin: $open_webui_cors_allow_origin,
+    open_webui_db_type: $open_webui_db_type,
+    open_webui_pg_database: $open_webui_pg_database,
+    open_webui_pg_user: $open_webui_pg_user,
+    open_webui_pg_password: $open_webui_pg_password,
     sysctl_somaxconn: $sysctl_somaxconn,
     sysctl_tcp_max_syn_backlog: $sysctl_tcp_max_syn_backlog,
     sysctl_netdev_max_backlog: $sysctl_netdev_max_backlog,
@@ -916,27 +924,54 @@ print("web.search.enable =", asyncio.run(Config.get("web.search.enable")))
 print("web.search.engine =", asyncio.run(Config.get("web.search.engine")))
 
 try:
-    conn = sqlite3.connect("/app/backend/data/webui.db")
-    c = conn.cursor()
-    users = c.execute("SELECT id, settings FROM user").fetchall()
-    for uid, raw_settings in users:
-        try:
-            s = json.loads(raw_settings) if raw_settings else {}
-        except Exception:
-            s = {}
-        if not isinstance(s, dict):
-            s = {}
-        ui = s.get("ui")
-        if not isinstance(ui, dict):
-            ui = {}
-        ui["locale"] = locale
-        ui["webSearch"] = "always"
-        s["ui"] = ui
-        c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
-    conn.commit()
-    conn.close()
+    from open_webui.models.users import Users
+    async def update_users():
+        users_data = await Users.get_users()
+        users_list = users_data.get("users", []) if isinstance(users_data, dict) else users_data
+        for u in users_list:
+            uid = getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
+            raw_settings = getattr(u, "settings", None) or (u.get("settings") if isinstance(u, dict) else None)
+            try:
+                s = json.loads(raw_settings) if isinstance(raw_settings, str) else (raw_settings or {})
+            except Exception:
+                s = {}
+            if not isinstance(s, dict):
+                s = {}
+            ui = s.get("ui")
+            if not isinstance(ui, dict):
+                ui = {}
+            ui["locale"] = locale
+            ui["webSearch"] = "always"
+            s["ui"] = ui
+            if uid:
+                await Users.update_user_by_id(uid, {"settings": s})
+    asyncio.run(update_users())
 except Exception as e:
-    print(f"Warning: Failed to update existing user settings: {e}")
+    print(f"Warning: Failed to update existing user settings via ORM: {e}")
+
+try:
+    if os.path.exists("/app/backend/data/webui.db"):
+        conn = sqlite3.connect("/app/backend/data/webui.db")
+        c = conn.cursor()
+        users = c.execute("SELECT id, settings FROM user").fetchall()
+        for uid, raw_settings in users:
+            try:
+                s = json.loads(raw_settings) if raw_settings else {}
+            except Exception:
+                s = {}
+            if not isinstance(s, dict):
+                s = {}
+            ui = s.get("ui")
+            if not isinstance(ui, dict):
+                ui = {}
+            ui["locale"] = locale
+            ui["webSearch"] = "always"
+            s["ui"] = ui
+            c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
+        conn.commit()
+        conn.close()
+except Exception as e:
+    pass
 
 try:
     import os, re

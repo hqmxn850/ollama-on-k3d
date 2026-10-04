@@ -333,6 +333,18 @@ open_webui_web_search_concurrent_requests: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEA
 open_webui_web_search_bypass_web_loader: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_BYPASS_WEB_LOADER') | default(true, true) | bool }}"
 open_webui_web_search_bypass_embedding_and_retrieval: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_BYPASS_EMBEDDING_AND_RETRIEVAL') | default(true, true) | bool }}"
 open_webui_cors_allow_origin: "{{ lookup('env', 'OPEN_WEBUI_CORS_ALLOW_ORIGIN') | default('https://' ~ open_webui_hostname, true) }}"
+open_webui_db_type: "{{ lookup('env', 'OPEN_WEBUI_DB_TYPE') | default('postgres', true) }}"
+open_webui_pg_database: "{{ lookup('env', 'OPEN_WEBUI_PG_DATABASE') | default('openwebui', true) }}"
+open_webui_pg_user: "{{ lookup('env', 'OPEN_WEBUI_PG_USER') | default('openwebui', true) }}"
+open_webui_pg_password: "{{ lookup('env', 'OPEN_WEBUI_PG_PASSWORD') | default('openwebui-db-2026', true) }}"
+open_webui_database_url: >-
+  {{
+    'postgresql://' ~ open_webui_pg_user ~ ':' ~ open_webui_pg_password ~ '@' ~
+    (keycloak_pg_host | default('keycloak-pg-postgresql')) ~ '.' ~ (keycloak_namespace | default('keycloak')) ~ '.svc.cluster.local:' ~
+    (postgres_port | default(5432)) ~ '/' ~ open_webui_pg_database
+    if (open_webui_db_type | default('postgres')) == 'postgres'
+    else ''
+  }}
 
 # TCP/IP & カーネル・リソース チューニング設定
 sysctl_somaxconn: "{{ lookup('env', 'SYSCTL_SOMAXCONN') | default(65535, true) | int }}"

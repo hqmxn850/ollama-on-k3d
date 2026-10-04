@@ -53,7 +53,7 @@ spec:
     - to:
         - podSelector: {}
 
-    # 3. クラスタ内部サービス通信 (Ollama, OGA, Keycloak)
+    # 3. クラスタ内部サービス通信 (Ollama, OGA, Keycloak, PostgreSQL)
     - ports:
         - protocol: TCP
           port: {{ ollama_port | default(11434) }}
@@ -61,6 +61,8 @@ spec:
           port: {{ oga_port | default(8000) }}
         - protocol: TCP
           port: {{ keycloak_http_port | default(8080) }}
+        - protocol: TCP
+          port: {{ postgres_port | default(5432) }}
         - protocol: TCP
           port: {{ https_port | default(443) }}
         - protocol: TCP

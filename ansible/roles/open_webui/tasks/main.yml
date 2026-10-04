@@ -90,6 +90,49 @@
       import sys
       from open_webui.models.config import Config
 
+      # -------------------------------------------------------------------------
+      # 0. PostgreSQL 接続時: 既存 SQLite (webui.db) からの自動データ移行 (マイグレーション)
+      # -------------------------------------------------------------------------
+      try:
+          from open_webui.internal.db import engine, SessionLocal
+          from sqlalchemy import text, inspect, Boolean
+          sqlite_path = "/app/backend/data/webui.db"
+          if engine and "postgresql" in str(engine.url) and os.path.exists(sqlite_path):
+              conn_sq = sqlite3.connect(sqlite_path)
+              conn_sq.row_factory = sqlite3.Row
+              c_sq = conn_sq.cursor()
+              inspector = inspect(engine)
+              migration_tables = ["user", "auth", "chat", "chat_message", "tag", "tool", "function"]
+              with SessionLocal() as session:
+                  for tbl in migration_tables:
+                      try:
+                          res = session.execute(text(f'SELECT count(*) FROM "{tbl}"')).scalar()
+                          if res == 0:
+                              sq_rows = c_sq.execute(f'SELECT * FROM "{tbl}"').fetchall()
+                              if sq_rows:
+                                  pg_cols = {col["name"]: col["type"] for col in inspector.get_columns(tbl)}
+                                  cols = [c for c in sq_rows[0].keys() if c in pg_cols]
+                                  cols_str = ', '.join([f'"{col}"' for col in cols])
+                                  vals_str = ', '.join([f':{col}' for col in cols])
+                                  insert_sql = text(f'INSERT INTO "{tbl}" ({cols_str}) VALUES ({vals_str}) ON CONFLICT DO NOTHING')
+                                  for row in sq_rows:
+                                      row_dict = {}
+                                      for col in cols:
+                                          val = row[col]
+                                          col_type = pg_cols.get(col)
+                                          if isinstance(col_type, Boolean) and val is not None:
+                                              val = bool(val)
+                                          row_dict[col] = val
+                                      session.execute(insert_sql, row_dict)
+                                  session.commit()
+                                  print(f"Migrated {len(sq_rows)} rows from SQLite into PostgreSQL {tbl}")
+                      except Exception as mex:
+                          session.rollback()
+                          print(f"Warning: Failed to migrate table {tbl} from SQLite: {mex}")
+              conn_sq.close()
+      except Exception as ex:
+          print(f"Warning: SQLite to PostgreSQL migration error: {ex}")
+
       locale = sys.argv[1]
       web_search_enabled = sys.argv[2] if len(sys.argv) > 2 else "True"
       web_search_engine = sys.argv[3] if len(sys.argv) > 3 else "duckduckgo"
@@ -123,27 +166,54 @@
       print("web.search.bypass_embedding_and_retrieval =", asyncio.run(Config.get("web.search.bypass_embedding_and_retrieval")))
 
       try:
-          conn = sqlite3.connect("/app/backend/data/webui.db")
-          c = conn.cursor()
-          users = c.execute("SELECT id, settings FROM user").fetchall()
-          for uid, raw_settings in users:
-              try:
-                  s = json.loads(raw_settings) if raw_settings else {}
-              except Exception:
-                  s = {}
-              if not isinstance(s, dict):
-                  s = {}
-              ui = s.get("ui")
-              if not isinstance(ui, dict):
-                  ui = {}
-              ui["locale"] = locale
-              ui["webSearch"] = "always"
-              s["ui"] = ui
-              c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
-          conn.commit()
-          conn.close()
+          from open_webui.models.users import Users
+          async def update_users():
+              users_data = await Users.get_users()
+              users_list = users_data.get("users", []) if isinstance(users_data, dict) else users_data
+              for u in users_list:
+                  uid = getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
+                  raw_settings = getattr(u, "settings", None) or (u.get("settings") if isinstance(u, dict) else None)
+                  try:
+                      s = json.loads(raw_settings) if isinstance(raw_settings, str) else (raw_settings or {})
+                  except Exception:
+                      s = {}
+                  if not isinstance(s, dict):
+                      s = {}
+                  ui = s.get("ui")
+                  if not isinstance(ui, dict):
+                      ui = {}
+                  ui["locale"] = locale
+                  ui["webSearch"] = "always"
+                  s["ui"] = ui
+                  if uid:
+                      await Users.update_user_by_id(uid, {"settings": s})
+          asyncio.run(update_users())
       except Exception as e:
-          print(f"Warning: Failed to update existing user settings: {e}")
+          print(f"Warning: Failed to update existing user settings via ORM: {e}")
+
+      try:
+          if os.path.exists("/app/backend/data/webui.db"):
+              conn = sqlite3.connect("/app/backend/data/webui.db")
+              c = conn.cursor()
+              users = c.execute("SELECT id, settings FROM user").fetchall()
+              for uid, raw_settings in users:
+                  try:
+                      s = json.loads(raw_settings) if raw_settings else {}
+                  except Exception:
+                      s = {}
+                  if not isinstance(s, dict):
+                      s = {}
+                  ui = s.get("ui")
+                  if not isinstance(ui, dict):
+                      ui = {}
+                  ui["locale"] = locale
+                  ui["webSearch"] = "always"
+                  s["ui"] = ui
+                  c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
+              conn.commit()
+              conn.close()
+      except Exception as e:
+          pass
 
       try:
           html_path = "/app/build/index.html"
@@ -191,6 +261,7 @@
                       break
               if not admin_id and users_list:
                   admin_id = getattr(users_list[0], "id", None) or (users_list[0].get("id") if isinstance(users_list[0], dict) else None)
+              admin_id = admin_id or "system"
 
               # 1. Sync Functions (Filters and Pipes)
               fn_files = glob.glob("/app/backend/data/custom_functions/*.py")

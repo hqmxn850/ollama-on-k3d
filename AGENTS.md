@@ -120,6 +120,11 @@
 | `OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS` | Open WebUI Web 検索並列リクエスト数 | `10` |
 | `OPEN_WEBUI_WEB_SEARCH_BYPASS_WEB_LOADER` | Web 全文スクレイピングをバイパスし検索スニペット直接注入 (高速・耐障害性) | `true` |
 | `OPEN_WEBUI_WEB_SEARCH_BYPASS_EMBEDDING_AND_RETRIEVAL` | Web 検索時のベクトル Embedding 計算をバイパス | `true` |
+| `OPEN_WEBUI_CORS_ALLOW_ORIGIN` | Open WebUI CORS 許可オリジン | `https://${OPEN_WEBUI_HOSTNAME}` |
+| `OPEN_WEBUI_DB_TYPE` | Open WebUI データベース種別 (postgres / sqlite) | `postgres` |
+| `OPEN_WEBUI_PG_DATABASE` | Open WebUI 用 PostgreSQL データベース名 | `openwebui` |
+| `OPEN_WEBUI_PG_USER` | Open WebUI 用 PostgreSQL ユーザー名 | `openwebui` |
+| `OPEN_WEBUI_PG_PASSWORD` | Open WebUI 用 PostgreSQL パスワード | `openwebui-db-2026` |
 | `AMD_GPU_PLUGIN_ENABLED` | AMD GPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_EXPORTER_ENABLED` | AMD NPU Prometheus Exporter 有効化 | `true` |

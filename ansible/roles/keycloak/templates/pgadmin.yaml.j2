@@ -29,15 +29,28 @@ data:
           "MaintenanceDB": "grafana",
           "Username": "grafana",
           "SSLMode": "prefer",
-          "PassFile": ".pgpass",
+          "PassFile": ".pgpass"
+        },
+        "3": {
+          "Name": "openwebui-postgresql",
+          "Group": "Open WebUI",
+          "Host": "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}",
+          "Port": {{ postgres_port | default(5432) }},
+          "MaintenanceDB": "{{ open_webui_pg_database | default('openwebui') }}",
+          "Username": "{{ open_webui_pg_user | default('openwebui') }}",
+          "SSLMode": "prefer",
+          "PassFile": ".pgpass"
         }
       }
     }
   pgpass: |
     {{ keycloak_pg_host | default('keycloak-pg-postgresql') }}:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
     {{ keycloak_pg_host | default('keycloak-pg-postgresql') }}:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    {{ keycloak_pg_host | default('keycloak-pg-postgresql') }}:{{ postgres_port | default(5432) }}:{{ open_webui_pg_database | default('openwebui') }}:{{ open_webui_pg_user | default('openwebui') }}:{{ open_webui_pg_password | default('openwebui-db-2026') }}
     *:{{ postgres_port | default(5432) }}:grafana:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    *:{{ postgres_port | default(5432) }}:{{ open_webui_pg_user | default('openwebui') }}:{{ open_webui_pg_password | default('openwebui-db-2026') }}
     *:{{ postgres_port | default(5432) }}:*:grafana:{{ grafana_db_password | default('grafana-db-2026') }}
+    *:{{ postgres_port | default(5432) }}:*:{{ open_webui_pg_user | default('openwebui') }}:{{ open_webui_pg_password | default('openwebui-db-2026') }}
     *:{{ postgres_port | default(5432) }}:*:postgres:{{ keycloak_pg_password | default('keycloak-pg-2026') }}
   preferences.json: |
     {
@@ -99,6 +112,7 @@ data:
 
     PG_PASSWORD = "{{ keycloak_pg_password | default('keycloak-pg-2026') }}"
     GRAFANA_PG_PASSWORD = "{{ grafana_db_password | default('grafana-db-2026') }}"
+    OPENWEBUI_PG_PASSWORD = "{{ open_webui_pg_password | default('openwebui-db-2026') }}"
 
     def _encrypt_password(pwd):
         try:
@@ -241,7 +255,8 @@ data:
             cur = conn.cursor()
             servers_def = [
                 ("{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", "Keycloak", "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", {{ postgres_port | default(5432) }}, "postgres", "postgres", PG_PASSWORD),
-                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD)
+                ("grafana-postgresql", "Grafana", "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", {{ postgres_port | default(5432) }}, "grafana", "grafana", GRAFANA_PG_PASSWORD),
+                ("openwebui-postgresql", "Open WebUI", "{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}", {{ postgres_port | default(5432) }}, "{{ open_webui_pg_database | default('openwebui') }}", "{{ open_webui_pg_user | default('openwebui') }}", OPENWEBUI_PG_PASSWORD)
             ]
             conn_params = '{"passfile": ".pgpass", "sslmode": "prefer"}'
 
@@ -288,7 +303,7 @@ data:
                 cur.execute("DELETE FROM server WHERE user_id = ? AND name IN ('Keycloak PostgreSQL (Primary)', 'Keycloak PostgreSQL (Read Only)')", (u_id,))
 
             # 不要な共有サーバー設定の修正および sharedserver のクリーンアップ
-            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}', 'grafana-postgresql')")
+            cur.execute("UPDATE server SET shared = 0 WHERE name IN ('{{ keycloak_pg_host | default('keycloak-pg-postgresql') }}', 'grafana-postgresql', 'openwebui-postgresql')")
             try:
                 cur.execute("DELETE FROM sharedserver")
             except Exception:
