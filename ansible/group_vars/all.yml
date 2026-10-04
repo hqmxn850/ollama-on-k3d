@@ -356,6 +356,9 @@ open_webui_database_url: >-
     if (open_webui_db_type | default('postgres')) == 'postgres'
     else ''
   }}
+open_webui_google_drive_integration_enabled: "{{ lookup('env', 'OPEN_WEBUI_GOOGLE_DRIVE_INTEGRATION_ENABLED') | default(false, true) | bool }}"
+open_webui_google_drive_client_id: "{{ lookup('env', 'OPEN_WEBUI_GOOGLE_DRIVE_CLIENT_ID') | default('', true) }}"
+open_webui_google_drive_api_key: "{{ lookup('env', 'OPEN_WEBUI_GOOGLE_DRIVE_API_KEY') | default('', true) }}"
 
 # TCP/IP & カーネル・リソース チューニング設定
 sysctl_somaxconn: "{{ lookup('env', 'SYSCTL_SOMAXCONN') | default(65535, true) | int }}"

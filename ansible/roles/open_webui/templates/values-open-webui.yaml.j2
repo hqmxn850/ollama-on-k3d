@@ -122,6 +122,15 @@ extraEnvVars:
     value: "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string | lower }}"
   - name: DDGS_BACKEND
     value: "auto"
+{% if open_webui_google_drive_integration_enabled | default(false) | bool %}
+  # Google Drive 連携設定
+  - name: ENABLE_GOOGLE_DRIVE_INTEGRATION
+    value: "true"
+  - name: GOOGLE_DRIVE_CLIENT_ID
+    value: {{ open_webui_google_drive_client_id | default('') | quote }}
+  - name: GOOGLE_DRIVE_API_KEY
+    value: {{ open_webui_google_drive_api_key | default('') | quote }}
+{% endif %}
 
 # コンテナ起動時ラッパースクリプト (Web 検索・Function Calling 連携パッチの起動前自動適用)
 command:
