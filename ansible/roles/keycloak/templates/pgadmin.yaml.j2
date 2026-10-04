@@ -492,7 +492,7 @@ spec:
   template:
     metadata:
       annotations:
-        checksum/config: "{{ (pgadmin_admin_email ~ pgadmin_admin_password ~ (pgadmin_client_secret | default('pgadmin-secret')) ~ (keycloak_pg_password | default('keycloak-pg-2026')) ~ 'v5-req-sync') | hash('sha256') }}"
+        checksum/config: "{{ (pgadmin_admin_email ~ pgadmin_admin_password ~ (pgadmin_client_secret | default('pgadmin-secret')) ~ (keycloak_pg_password | default('keycloak-pg-2026')) ~ (grafana_db_password | default('grafana-db-2026')) ~ (open_webui_pg_password | default('openwebui-db-2026')) ~ (open_webui_pg_database | default('openwebui')) ~ 'v6-openwebui-sync') | hash('sha256') }}"
       labels:
         app.kubernetes.io/name: pgadmin
         app.kubernetes.io/part-of: keycloak-postgresql

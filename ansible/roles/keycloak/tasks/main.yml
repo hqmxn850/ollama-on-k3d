@@ -141,3 +141,8 @@
   register: apply_pgadmin
   changed_when: "'created' in apply_pgadmin.stdout or 'configured' in apply_pgadmin.stdout"
 
+- name: pgAdmin 4 デプロイのロールアウト完了を待機
+  ansible.builtin.command: "kubectl rollout status deployment/pgadmin -n {{ keycloak_namespace }} --timeout={{ default_rollout_timeout }}"
+  changed_when: false
+
+
