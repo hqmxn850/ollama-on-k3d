@@ -155,5 +155,9 @@
    - AMD XDNA NPU (Strix Halo / Ryzen AI) を用いた高速推論はホスト上の `fastflowlm` (`flm serve`) により提供され、Kubernetes クラスタ内の OGA (OnnxRuntime GenAI) サービスが OpenAI 互換リバースプロキシ兼 Prometheus Exporter として中継する。
    - `start.sh` 実行時に `flm` カーネルバイナリ確認、`NPU_FLM_DEFAULT_MODEL` (例: `qwen3:0.6b`) の pull、`flm serve` API サーバーの自動バックグラウンド起動が行われ、`stop.sh` 実行時に安全に終了される。
    - Open WebUI からは OGA サービス (`http://oga.oga.svc.cluster.local:8000/v1`) 経由でモデル一覧に表示され、選択するだけで 100+ tokens/sec の NPU ハードウェア推論が実行される。推論実行時は Prometheus の `amd_npu_command_submissions_total` および `oga_requests_total` に即座に反映される。
+6. **Web 検索機能とツール (Tool Calling)**:
+   - Open WebUI には DuckDuckGo を用いたインターネット Web 検索機能が統合されており、2 つの方法でリアルタイム検索・回答が可能：
+     1. **RAG 検索 (地球儀アイコン 🌐)**: チャット入力欄の地球儀アイコンをクリックして ON にすると、最新の検索結果をコンテキストとして自動取得しプロンプトに注入する。
+     2. **自律型 Tool Calling (Web Search ツール)**: Workspace > Tools に登録された `web_search` ツール (DuckDuckGo 検索) をチャット入力欄の「＋」アイコンから選択することで、LLM が Function Calling により自律的にキーワード検索を発行・要約回答できる。`start.sh` および Ansible ロール (`open_webui`) により自動的に DB 登録・更新される。
 
 

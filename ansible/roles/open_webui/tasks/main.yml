@@ -134,6 +134,84 @@
               print("Patched index.html language attribute and synchronous loader script")
       except Exception as e:
           print(f"Warning: Failed to patch index.html: {e}")
+
+      try:
+          from open_webui.models.tools import Tools, ToolForm, ToolMeta
+          from open_webui.models.users import Users
+          from open_webui.utils.tools import load_tool_module_by_id, get_tool_specs
+
+          TOOL_ID = "web_search"
+          TOOL_NAME = "Web Search"
+          TOOL_DESC = "DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。"
+          TOOL_CONTENT = '''"""
+title: Web Search
+author: Open WebUI
+version: 1.0.0
+description: DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。
+"""
+
+from ddgs import DDGS
+
+class Tools:
+    def __init__(self):
+        pass
+
+    def search_web(self, query: str, count: int = 5) -> str:
+        """
+        インターネットを検索して最新の情報（ニュース、天気、事実など）を取得します。
+        :param query: 検索キーワードや質問
+        :param count: 取得する検索結果の件数 (デフォルト: 5)
+        :return: 検索結果（タイトル、URL、要約スニペット）
+        """
+        try:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(query, max_results=count))
+                if not results:
+                    return f"「{query}」に関する検索結果は見つかりませんでした。"
+                
+                output = []
+                for i, r in enumerate(results, 1):
+                    title = r.get("title", "")
+                    url = r.get("href", "")
+                    body = r.get("body", "")
+                    output.append(f"[{i}] {title}\\nURL: {url}\\n要約: {body}\\n")
+                return "\\n".join(output)
+        except Exception as e:
+            return f"検索エラー: {str(e)}"
+'''
+          async def register_tool():
+              users_data = await Users.get_users()
+              users_list = users_data.get("users", []) if isinstance(users_data, dict) else users_data
+              admin_id = None
+              for u in users_list:
+                  role = getattr(u, "role", "") or (u.get("role") if isinstance(u, dict) else "")
+                  if role == "admin":
+                      admin_id = getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
+                      break
+              if not admin_id and users_list:
+                  admin_id = getattr(users_list[0], "id", None) or (users_list[0].get("id") if isinstance(users_list[0], dict) else None)
+
+              module, _ = await load_tool_module_by_id(TOOL_ID, content=TOOL_CONTENT)
+              specs = get_tool_specs(module)
+
+              existing = await Tools.get_tool_by_id(TOOL_ID)
+              form = ToolForm(
+                  id=TOOL_ID,
+                  name=TOOL_NAME,
+                  content=TOOL_CONTENT,
+                  meta=ToolMeta(description=TOOL_DESC),
+                  access_grants=[]
+              )
+              if existing:
+                  await Tools.update_tool_by_id(TOOL_ID, form, specs=specs)
+                  print("Updated web_search tool successfully")
+              elif admin_id:
+                  await Tools.insert_new_tool(admin_id, form, specs=specs)
+                  print("Created web_search tool successfully")
+
+          asyncio.run(register_tool())
+      except Exception as e:
+          print(f"Warning: Failed to register web_search tool: {e}")
   register: open_webui_locale_setup
   changed_when: false
   retries: "{{ quick_retry_count | default(5) }}"
