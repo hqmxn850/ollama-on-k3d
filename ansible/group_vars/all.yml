@@ -235,6 +235,14 @@ amd_npu_device_name: "{{ lookup('env', 'AMD_NPU_DEVICE_NAME') | default('npu', t
 amd_npu_device_count: "{{ lookup('env', 'AMD_NPU_DEVICE_COUNT') | default(1, true) | int }}"
 amd_npu_daemonset_name: "amd-npu-device-plugin"
 
+# AMD NPU (XDNA) Prometheus Exporter 設定
+amd_npu_exporter_enabled: "{{ lookup('env', 'AMD_NPU_EXPORTER_ENABLED') | default(true, true) | bool }}"
+amd_npu_exporter_port: "{{ lookup('env', 'AMD_NPU_EXPORTER_PORT') | default(9105, true) | int }}"
+amd_npu_exporter_daemonset_name: "amd-npu-exporter"
+amd_npu_exporter_service_name: "amd-npu-exporter"
+amd_npu_exporter_image: "{{ python_image | default('docker.io/library/python:3.12-slim', true) }}"
+
+
 # Ollama LLM / AI サービス設定 (Worker ノード配置)
 ollama_enabled: "{{ lookup('env', 'OLLAMA_ENABLED') | default(true, true) | bool }}"
 ollama_chart_version: "{{ lookup('env', 'OLLAMA_CHART_VERSION') | default('1.84.0', true) }}"

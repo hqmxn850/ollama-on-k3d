@@ -79,3 +79,28 @@
   ansible.builtin.debug:
     msg: "{{ amd_npu_allocatable.stdout_lines | default([]) }}"
   when: amd_npu_plugin_enabled | default(true) | bool
+
+- name: AMD NPU Prometheus Exporter マニフェストを適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'amd-npu-exporter.yaml.j2') }}"
+  register: apply_amd_npu_exporter
+  changed_when: "'created' in apply_amd_npu_exporter.stdout or 'configured' in apply_amd_npu_exporter.stdout"
+  when:
+    - amd_npu_plugin_enabled | default(true) | bool
+    - amd_npu_exporter_enabled | default(true) | bool
+
+- name: AMD NPU Prometheus Exporter DaemonSet のロールアウト完了を待機
+  ansible.builtin.command: >-
+    kubectl rollout status daemonset/{{ amd_npu_exporter_daemonset_name }}
+    -n {{ kube_system_namespace }}
+    --timeout={{ default_rollout_timeout | default('300s') }}
+  register: amd_npu_exporter_rollout
+  until: amd_npu_exporter_rollout.rc == 0
+  retries: "{{ quick_retry_count | default(10) }}"
+  delay: "{{ quick_retry_delay | default(5) }}"
+  changed_when: false
+  when:
+    - amd_npu_plugin_enabled | default(true) | bool
+    - amd_npu_exporter_enabled | default(true) | bool
+

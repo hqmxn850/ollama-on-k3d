@@ -116,8 +116,11 @@
 | `OPEN_WEBUI_DEFAULT_LOCALE` | Open WebUI デフォルト言語ロケール | `ja-JP` |
 | `AMD_GPU_PLUGIN_ENABLED` | AMD GPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
+| `AMD_NPU_EXPORTER_ENABLED` | AMD NPU Prometheus Exporter 有効化 | `true` |
+| `AMD_NPU_EXPORTER_PORT` | AMD NPU Prometheus Exporter 待受ポート | `9105` |
 
 ---
+
 
 ## 開発・運用ガイドライン
 

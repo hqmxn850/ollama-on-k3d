@@ -1,0 +1,321 @@
+---
+# ==============================================================================
+# AMD NPU (XDNA) Prometheus Exporter
+# リテラルは ansible/group_vars/all.yml (Single Source of Truth) を参照
+# /dev/accel/* の ioctl および sysfs から NPU テレメトリを抽出し Prometheus に提供
+# ==============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amd-npu-exporter-script
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ amd_npu_exporter_daemonset_name }}
+    app.kubernetes.io/component: metrics-exporter
+    app.kubernetes.io/part-of: amd-accelerator
+data:
+  exporter.py: |
+    {% raw %}
+    import ctypes
+    import fcntl
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    import os
+    import re
+    import struct
+    import sys
+
+    # DRM / AMDXDNA IOCTL 定義 (linux/uapi/drm/amdxdna_accel.h)
+    IOC_NR = 0x47
+    IOC_TYPE = ord("d")
+    IOC_SIZE = 16
+    IOC_DIR = 3
+    DRM_IOCTL_AMDXDNA_GET_INFO = (IOC_DIR << 30) | (IOC_SIZE << 16) | (IOC_TYPE << 8) | IOC_NR
+
+    def collect_metrics():
+        lines = []
+        base_path = os.environ.get("ACCEL_DEVICE_PATH", "/dev/accel")
+        dev_path = os.path.join(base_path, "accel0")
+        if not os.path.exists(dev_path):
+            lines.append("# HELP amd_npu_up Whether the NPU device is accessible (1) or down (0)")
+            lines.append("# TYPE amd_npu_up gauge")
+            lines.append('amd_npu_up{device="accel0"} 0')
+            return "\n".join(lines) + "\n"
+
+        try:
+            fd = os.open(dev_path, os.O_RDWR)
+        except Exception:
+            lines.append("# HELP amd_npu_up Whether the NPU device is accessible (1) or down (0)")
+            lines.append("# TYPE amd_npu_up gauge")
+            lines.append('amd_npu_up{device="accel0"} 0')
+            return "\n".join(lines) + "\n"
+
+        def query(param, buf_size):
+            buf = ctypes.create_string_buffer(buf_size)
+            addr = ctypes.addressof(buf)
+            req = struct.pack("IIQ", param, buf_size, addr)
+            try:
+                res = fcntl.ioctl(fd, DRM_IOCTL_AMDXDNA_GET_INFO, req)
+                _, out_size, _ = struct.unpack("IIQ", res)
+                return buf.raw[:out_size]
+            except Exception:
+                return None
+
+        # デバイス名・ファームウェアバージョン
+        dev_name = "AMD NPU"
+        for p in ["/sys/class/accel/accel0/device/vbnv"]:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        dev_name = f.read().strip()
+                except Exception:
+                    pass
+
+        fw_ver = "unknown"
+        fw_raw = query(8, 16)
+        if fw_raw and len(fw_raw) >= 16:
+            maj, mino, pat, bld = struct.unpack("IIII", fw_raw[:16])
+            fw_ver = f"{maj}.{mino}.{pat}.{bld}"
+
+        # AIE メタデータ (Columns, Rows, AIE Version)
+        aie_ver = "unknown"
+        cols = 8
+        meta_raw = query(1, 64)
+        if meta_raw and len(meta_raw) >= 16:
+            _, cols, _, a_maj, a_min = struct.unpack("IHHII", meta_raw[0:16])
+            aie_ver = f"{a_maj}.{a_min}"
+
+        lines.append("# HELP amd_npu_up Whether the NPU device is accessible (1) or down (0)")
+        lines.append("# TYPE amd_npu_up gauge")
+        lines.append('amd_npu_up{device="accel0"} 1')
+
+        lines.append("# HELP amd_npu_info Information about the AMD NPU device")
+        lines.append("# TYPE amd_npu_info gauge")
+        lines.append(f'amd_npu_info{{device="accel0",model="{dev_name}",firmware_version="{fw_ver}",aie_version="{aie_ver}"}} 1')
+
+        # クロック周波数 (MP-NPU & H-Clock)
+        clocks_raw = query(3, 48)
+        if clocks_raw and len(clocks_raw) >= 48:
+            c1_name = clocks_raw[0:16].split(b"\x00")[0].decode("ascii", "ignore").strip()
+            c1_freq = struct.unpack("I", clocks_raw[16:20])[0]
+            c2_name = clocks_raw[24:40].split(b"\x00")[0].decode("ascii", "ignore").strip()
+            c2_freq = struct.unpack("I", clocks_raw[40:44])[0]
+            lines.append("# HELP amd_npu_clock_frequency_mhz Clock frequencies in MHz")
+            lines.append("# TYPE amd_npu_clock_frequency_mhz gauge")
+            lines.append(f'amd_npu_clock_frequency_mhz{{device="accel0",clock="{c1_name}"}} {c1_freq}')
+            lines.append(f'amd_npu_clock_frequency_mhz{{device="accel0",clock="{c2_name}"}} {c2_freq}')
+
+        # パワーモード
+        pm_raw = query(9, 8)
+        if pm_raw and len(pm_raw) >= 1:
+            pm = pm_raw[0]
+            lines.append("# HELP amd_npu_power_mode Configured power mode (0=DEFAULT, 1=LOW, 2=MED, 3=HIGH, 4=TURBO)")
+            lines.append("# TYPE amd_npu_power_mode gauge")
+            lines.append(f'amd_npu_power_mode{{device="accel0"}} {pm}')
+
+        # AIE カラム数・占有率 & ハードウェアコンテキスト
+        lines.append("# HELP amd_npu_columns_total Total number of AIE columns")
+        lines.append("# TYPE amd_npu_columns_total gauge")
+        lines.append(f'amd_npu_columns_total{{device="accel0"}} {cols}')
+
+        occupied_cols = 0
+        active_ctx = 0
+        total_subs = 0
+        total_comps = 0
+        total_errs = 0
+
+        hwctx_raw = query(5, 64 * 16)
+        if hwctx_raw and len(hwctx_raw) >= 64:
+            num_ctx = len(hwctx_raw) // 64
+            for i in range(num_ctx):
+                chunk = hwctx_raw[i*64 : (i+1)*64]
+                cid, scol, ncol, _ = struct.unpack("IIII", chunk[0:16])
+                pid = struct.unpack("q", chunk[16:24])[0]
+                subs, comps, migs, preemps, errs = struct.unpack("QQQQQ", chunk[24:64])
+                if pid > 0 or ncol > 0 or subs > 0:
+                    active_ctx += 1
+                    occupied_cols += ncol
+                    total_subs += subs
+                    total_comps += comps
+                    total_errs += errs
+
+        lines.append("# HELP amd_npu_columns_occupied Currently occupied AIE columns")
+        lines.append("# TYPE amd_npu_columns_occupied gauge")
+        lines.append(f'amd_npu_columns_occupied{{device="accel0"}} {occupied_cols}')
+
+        col_util = (occupied_cols / cols * 100.0) if cols > 0 else 0.0
+        lines.append("# HELP amd_npu_column_utilization_ratio Current AIE column utilization percentage (0-100)")
+        lines.append("# TYPE amd_npu_column_utilization_ratio gauge")
+        lines.append(f'amd_npu_column_utilization_ratio{{device="accel0"}} {col_util:.1f}')
+
+        lines.append("# HELP amd_npu_active_contexts Number of active hardware contexts")
+        lines.append("# TYPE amd_npu_active_contexts gauge")
+        lines.append(f'amd_npu_active_contexts{{device="accel0"}} {active_ctx}')
+
+        lines.append("# HELP amd_npu_command_submissions_total Total commands submitted to NPU")
+        lines.append("# TYPE amd_npu_command_submissions_total counter")
+        lines.append(f'amd_npu_command_submissions_total{{device="accel0"}} {total_subs}')
+
+        lines.append("# HELP amd_npu_command_completions_total Total commands completed by NPU")
+        lines.append("# TYPE amd_npu_command_completions_total counter")
+        lines.append(f'amd_npu_command_completions_total{{device="accel0"}} {total_comps}')
+
+        lines.append("# HELP amd_npu_command_errors_total Total command errors on NPU")
+        lines.append("# TYPE amd_npu_command_errors_total counter")
+        lines.append(f'amd_npu_command_errors_total{{device="accel0"}} {total_errs}')
+
+        # PCIe リンク速度・レーン幅 (sysfs)
+        try:
+            with open("/sys/class/accel/accel0/device/current_link_speed", "r", encoding="utf-8") as f:
+                speed_str = f.read()
+                m = re.search(r"([\d\.]+)", speed_str)
+                if m:
+                    lines.append("# HELP amd_npu_pcie_link_speed_gts PCIe current link speed in GT/s")
+                    lines.append("# TYPE amd_npu_pcie_link_speed_gts gauge")
+                    lines.append(f'amd_npu_pcie_link_speed_gts{{device="accel0"}} {m.group(1)}')
+        except Exception:
+            pass
+
+        try:
+            with open("/sys/class/accel/accel0/device/current_link_width", "r", encoding="utf-8") as f:
+                width_str = f.read().strip()
+                if width_str.isdigit():
+                    lines.append("# HELP amd_npu_pcie_link_width PCIe current link width (lanes)")
+                    lines.append("# TYPE amd_npu_pcie_link_width gauge")
+                    lines.append(f'amd_npu_pcie_link_width{{device="accel0"}} {width_str}')
+        except Exception:
+            pass
+
+        os.close(fd)
+        return "\n".join(lines) + "\n"
+
+    class MetricsHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/metrics" or self.path == "/":
+                content = collect_metrics().encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.end_headers()
+                self.wfile.write(content)
+            elif self.path == "/healthz":
+                self.send_response(200)
+                self.send_header("Content-Type", "text/plain")
+                self.end_headers()
+                self.wfile.write(b"OK\n")
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def log_message(self, format, *args):
+            pass
+
+    if __name__ == "__main__":
+        port = int(os.environ.get("EXPORTER_PORT", "9105"))
+        server = HTTPServer(("0.0.0.0", port), MetricsHandler)
+        print(f"AMD NPU Prometheus Exporter listening on port {port}...")
+        server.serve_forever()
+{% endraw %}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ amd_npu_exporter_daemonset_name | default('amd-npu-exporter') }}
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ amd_npu_exporter_daemonset_name | default('amd-npu-exporter') }}
+    app.kubernetes.io/component: metrics-exporter
+    app.kubernetes.io/part-of: amd-accelerator
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ amd_npu_exporter_daemonset_name | default('amd-npu-exporter') }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ amd_npu_exporter_daemonset_name | default('amd-npu-exporter') }}
+        app.kubernetes.io/component: metrics-exporter
+        app.kubernetes.io/part-of: amd-accelerator
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      priorityClassName: system-node-critical
+      tolerations:
+        - operator: "Exists"
+          effect: "NoSchedule"
+        - operator: "Exists"
+          effect: "NoExecute"
+      containers:
+        - name: exporter
+          image: {{ amd_npu_exporter_image | default('docker.io/library/python:3.12-slim') | quote }}
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - -u
+            - /app/exporter.py
+          env:
+            - name: EXPORTER_PORT
+              value: "{{ amd_npu_exporter_port | default(9105) }}"
+            - name: ACCEL_DEVICE_PATH
+              value: "{{ accel_device_path | default('/dev/accel') }}"
+          ports:
+            - name: http-metrics
+              containerPort: {{ amd_npu_exporter_port | default(9105) }}
+              protocol: TCP
+          securityContext:
+            privileged: true
+          volumeMounts:
+            - name: dev-accel
+              mountPath: {{ accel_device_path | default('/dev/accel') }}
+            - name: sys-accel
+              mountPath: /sys/class/accel
+              readOnly: true
+            - name: script
+              mountPath: /app
+          resources:
+            requests:
+              cpu: 10m
+              memory: 24Mi
+            limits:
+              cpu: 50m
+              memory: 64Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http-metrics
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 20
+      volumes:
+        - name: dev-accel
+          hostPath:
+            path: {{ accel_device_path | default('/dev/accel') }}
+        - name: sys-accel
+          hostPath:
+            path: /sys/class/accel
+        - name: script
+          configMap:
+            name: amd-npu-exporter-script
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ amd_npu_exporter_service_name | default('amd-npu-exporter') }}
+  namespace: {{ kube_system_namespace }}
+  labels:
+    app.kubernetes.io/name: {{ amd_npu_exporter_service_name | default('amd-npu-exporter') }}
+    app.kubernetes.io/component: metrics-exporter
+    app.kubernetes.io/part-of: amd-accelerator
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: {{ amd_npu_exporter_daemonset_name | default('amd-npu-exporter') }}
+  ports:
+    - name: http-metrics
+      port: {{ amd_npu_exporter_port | default(9105) }}
+      targetPort: http-metrics
+      protocol: TCP
