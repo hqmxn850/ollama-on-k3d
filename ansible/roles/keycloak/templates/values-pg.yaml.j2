@@ -58,6 +58,16 @@ primary:
     log_checkpoints = on
     log_lock_waits = on
 
+    # ロギング・pgAdmin サーバーログ閲覧対応 (ファイル出力 & CSVLog)
+    logging_collector = {{ 'on' if (keycloak_pg_logging_collector | default(true) | bool) else 'off' }}
+    log_destination = '{{ keycloak_pg_log_destination | default("csvlog,stderr") }}'
+    log_directory = '{{ keycloak_pg_log_directory | default("log") }}'
+    log_filename = '{{ keycloak_pg_log_filename | default("postgresql-%Y-%m-%d_%H%M%S.log") }}'
+    log_rotation_age = {{ keycloak_pg_log_rotation_age | default('1d') }}
+    log_rotation_size = {{ keycloak_pg_log_rotation_size | default('100MB') }}
+    log_min_messages = {{ keycloak_pg_log_min_messages | default('warning') }}
+    log_line_prefix = '{{ keycloak_pg_log_line_prefix | default("%m [%p] %q%u@%d ") }}'
+
   resources:
     requests:
       cpu: {{ keycloak_pg_cpu_request | default('250m') }}
