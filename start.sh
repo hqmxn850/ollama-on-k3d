@@ -885,7 +885,7 @@ except Exception:
 
     updates = {
         "ui.default_locale": locale,
-        "ui.default_interface_settings": {"locale": locale},
+        "ui.default_interface_settings": {"locale": locale, "webSearch": "always"},
         "web.search.enable": (web_search_enabled.lower() == "true"),
         "web.search.engine": web_search_engine,
         "web.search.result_count": web_search_count,
@@ -923,6 +923,7 @@ try:
         if not isinstance(ui, dict):
             ui = {}
         ui["locale"] = locale
+        ui["webSearch"] = "always"
         s["ui"] = ui
         c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
     conn.commit()
@@ -1065,12 +1066,19 @@ try:
     for js_path in js_files:
         with open(js_path, "r", encoding="utf-8") as f:
             content = f.read()
+        c_changed = False
         if "webSearchEnabled" in content:
             new_content, count = re.subn(r'("webSearchEnabled",\s*\d+,\s*)!1', r'\g<1>!0', content)
             if count > 0:
-                with open(js_path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                print(f"Patched {count} webSearchEnabled defaults to true in {os.path.basename(js_path)}")
+                content = new_content
+                c_changed = True
+        if "q.webSearchEnabled??!1" in content:
+            content = content.replace("q.webSearchEnabled??!1", "q.webSearchEnabled??!0")
+            c_changed = True
+        if c_changed:
+            with open(js_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"Patched webSearchEnabled defaults to true in {os.path.basename(js_path)}")
 except Exception as e:
     print(f"Warning: Failed to patch frontend webSearchEnabled defaults: {e}")
 

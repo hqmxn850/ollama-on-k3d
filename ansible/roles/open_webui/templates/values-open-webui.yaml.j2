@@ -192,6 +192,20 @@ extraResources:
                     print("Open WebUI middleware.py already up-to-date")
         except Exception as e:
             print(f"Warning: Failed to patch middleware.py at startup: {e}")
+
+        # 4. フロントエンドの地球儀アイコン (Web 検索) のデフォルト ON パッチ
+        try:
+            import glob
+            for f in glob.glob('/app/build/_app/immutable/chunks/*.js'):
+                with open(f, 'r', encoding='utf-8') as js_f:
+                    js_c = js_f.read()
+                if 'q.webSearchEnabled??!1' in js_c:
+                    js_c = js_c.replace('q.webSearchEnabled??!1', 'q.webSearchEnabled??!0')
+                    with open(f, 'w', encoding='utf-8') as js_f:
+                        js_f.write(js_c)
+                    print(f"Successfully patched webSearchEnabled default to true in {os.path.basename(f)}")
+        except Exception as e:
+            print(f"Warning: Failed to patch frontend webSearchEnabled in entrypoint: {e}")
         PYEOF
 
         exec bash /app/backend/start.sh "$@"
@@ -205,7 +219,7 @@ extraResources:
         app.kubernetes.io/component: open-webui
     data:
       loader.js: |
-        // Open WebUI ロケール自動初期化 (デフォルト: {{ open_webui_default_locale | default('ja-JP') }})
+        // Open WebUI ロケール & 地球儀アイコン (Web 検索) 自動初期化
         (function() {
           try {
             var defaultLocale = {{ open_webui_default_locale | default('ja-JP') | to_json }};
@@ -217,8 +231,17 @@ extraResources:
             if (document.documentElement) {
               document.documentElement.setAttribute('lang', defaultLocale);
             }
+
+            // 地球儀アイコン (Web 検索) の常時有効化 (always) 同期
+            var rawSettings = localStorage.getItem('settings');
+            var settings = rawSettings ? JSON.parse(rawSettings) : {};
+            if (!settings.ui) settings.ui = {};
+            if (settings.ui.webSearch !== 'always') {
+              settings.ui.webSearch = 'always';
+              localStorage.setItem('settings', JSON.stringify(settings));
+            }
           } catch (e) {
-            console.error('Failed to initialize locale in loader.js:', e);
+            console.error('Failed to initialize in loader.js:', e);
           }
         })();
 
