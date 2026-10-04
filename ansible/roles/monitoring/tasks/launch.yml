@@ -59,6 +59,14 @@
       GRANT EXECUTE ON FUNCTION pg_stat_file(text, boolean) TO pg_read_server_files, pg_monitor;
       GRANT EXECUTE ON FUNCTION pg_current_logfile() TO pg_read_server_files, pg_monitor;
       GRANT EXECUTE ON FUNCTION pg_current_logfile(text) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_ls_logdir() TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_file(text) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_file(text, bigint, bigint) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_file(text, bigint, bigint, boolean) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_file(text, boolean) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_binary_file(text) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_binary_file(text, bigint, bigint) TO pg_read_server_files, pg_monitor;
+      GRANT EXECUTE ON FUNCTION pg_read_binary_file(text, bigint, bigint, boolean) TO pg_read_server_files, pg_monitor;
     " || true
   register: ensure_grafana_db
   changed_when: "'CREATE DATABASE' in ensure_grafana_db.stdout"

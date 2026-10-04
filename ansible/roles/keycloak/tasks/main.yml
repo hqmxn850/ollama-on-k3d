@@ -94,10 +94,10 @@
   ansible.builtin.shell: |
     # 1. クラスター共通ロールの付与
     kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -c "
-      GRANT pg_read_server_files, pg_monitor, monitor_system_stats TO grafana, keycloak;
+      GRANT pg_read_server_files, pg_monitor, monitor_system_stats TO grafana, keycloak, {{ open_webui_pg_user | default('openwebui') }};
     " || true
 
-    # 2. 全データベースおよび template1 で system_stats 有効化 & pg_stat_file / pg_current_logfile の実行権限を付与 (pgAdmin 監視エラー防止)
+    # 2. 全データベースおよび template1 で system_stats 有効化 & pg_stat_file / pg_read_file / pg_ls_logdir の実行権限を付与 (pgAdmin サーバーログ・監視エラー防止)
     for db in postgres template1 keycloak grafana {{ open_webui_pg_database | default('openwebui') }}; do
       kubectl exec -n {{ keycloak_namespace | default('keycloak') }} {{ keycloak_pg_primary_pod }} -c postgresql -- env PGPASSWORD="{{ keycloak_pg_password | default('keycloak-pg-2026') }}" psql -U postgres -d "$db" -c "
         CREATE EXTENSION IF NOT EXISTS system_stats;
@@ -109,6 +109,14 @@
         GRANT EXECUTE ON FUNCTION pg_stat_file(text, boolean) TO pg_read_server_files, pg_monitor;
         GRANT EXECUTE ON FUNCTION pg_current_logfile() TO pg_read_server_files, pg_monitor;
         GRANT EXECUTE ON FUNCTION pg_current_logfile(text) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_ls_logdir() TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_file(text) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_file(text, bigint, bigint) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_file(text, bigint, bigint, boolean) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_file(text, boolean) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_binary_file(text) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_binary_file(text, bigint, bigint) TO pg_read_server_files, pg_monitor;
+        GRANT EXECUTE ON FUNCTION pg_read_binary_file(text, bigint, bigint, boolean) TO pg_read_server_files, pg_monitor;
       " || true
     done
   changed_when: false
