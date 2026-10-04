@@ -299,6 +299,9 @@ EXTRA_VARS=$(jq -n \
   --arg open_webui_pg_database "${OPEN_WEBUI_PG_DATABASE:-openwebui}" \
   --arg open_webui_pg_user "${OPEN_WEBUI_PG_USER:-openwebui}" \
   --arg open_webui_pg_password "${OPEN_WEBUI_PG_PASSWORD:-openwebui-db-2026}" \
+  --argjson open_webui_google_drive_integration_enabled "${OPEN_WEBUI_GOOGLE_DRIVE_INTEGRATION_ENABLED:-false}" \
+  --arg open_webui_google_drive_client_id "${OPEN_WEBUI_GOOGLE_DRIVE_CLIENT_ID:-}" \
+  --arg open_webui_google_drive_api_key "${OPEN_WEBUI_GOOGLE_DRIVE_API_KEY:-}" \
   --argjson sysctl_somaxconn "${SYSCTL_SOMAXCONN:-65535}" \
   --argjson sysctl_tcp_max_syn_backlog "${SYSCTL_TCP_MAX_SYN_BACKLOG:-65535}" \
   --argjson sysctl_netdev_max_backlog "${SYSCTL_NETDEV_MAX_BACKLOG:-65535}" \
@@ -526,6 +529,9 @@ EXTRA_VARS=$(jq -n \
     open_webui_pg_database: $open_webui_pg_database,
     open_webui_pg_user: $open_webui_pg_user,
     open_webui_pg_password: $open_webui_pg_password,
+    open_webui_google_drive_integration_enabled: $open_webui_google_drive_integration_enabled,
+    open_webui_google_drive_client_id: $open_webui_google_drive_client_id,
+    open_webui_google_drive_api_key: $open_webui_google_drive_api_key,
     sysctl_somaxconn: $sysctl_somaxconn,
     sysctl_tcp_max_syn_backlog: $sysctl_tcp_max_syn_backlog,
     sysctl_netdev_max_backlog: $sysctl_netdev_max_backlog,
