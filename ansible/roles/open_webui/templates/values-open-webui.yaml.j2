@@ -214,6 +214,21 @@ extraResources:
                     print(f"Successfully patched webSearchEnabled default to true in {os.path.basename(f)}")
         except Exception as e:
             print(f"Warning: Failed to patch frontend webSearchEnabled in entrypoint: {e}")
+
+        # 5. index.html の lang 属性と loader.js 同期読み込みパッチ
+        try:
+            import re
+            html_path = "/app/build/index.html"
+            if os.path.exists(html_path):
+                with open(html_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                content = re.sub(r'<html lang="[^"]*"', '<html lang="{{ open_webui_default_locale | default("ja-JP") }}"', content)
+                content = content.replace('src="/static/loader.js" defer', 'src="/static/loader.js"')
+                with open(html_path, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print("Successfully patched index.html language and loader in entrypoint")
+        except Exception as e:
+            print(f"Warning: Failed to patch index.html in entrypoint: {e}")
         PYEOF
 
         exec bash /app/backend/start.sh "$@"
