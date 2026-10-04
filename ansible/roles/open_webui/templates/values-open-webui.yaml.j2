@@ -110,6 +110,12 @@ extraEnvVars:
     value: "{{ open_webui_web_search_result_count | default(3) | string }}"
   - name: WEB_SEARCH_CONCURRENT_REQUESTS
     value: "{{ open_webui_web_search_concurrent_requests | default(10) | string }}"
+  - name: BYPASS_WEB_SEARCH_WEB_LOADER
+    value: "{{ open_webui_web_search_bypass_web_loader | default(true) | string | lower }}"
+  - name: BYPASS_WEB_SEARCH_EMBEDDING_AND_RETRIEVAL
+    value: "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string | lower }}"
+  - name: DDGS_BACKEND
+    value: "auto"
 
 # コンテナ起動時ラッパースクリプト (Web 検索・Function Calling 連携パッチの起動前自動適用)
 command:
