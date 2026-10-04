@@ -326,6 +326,10 @@ open_webui_cpu_request: "{{ lookup('env', 'OPEN_WEBUI_CPU_REQUEST') | default('2
 open_webui_memory_request: "{{ lookup('env', 'OPEN_WEBUI_MEMORY_REQUEST') | default('512Mi', true) }}"
 open_webui_memory_limit: "{{ lookup('env', 'OPEN_WEBUI_MEMORY_LIMIT') | default('4Gi', true) }}"
 open_webui_rollout_timeout: "{{ lookup('env', 'OPEN_WEBUI_ROLLOUT_TIMEOUT') | default('300s', true) }}"
+open_webui_web_search_enabled: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_ENABLED') | default(true, true) | bool }}"
+open_webui_web_search_engine: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_ENGINE') | default('duckduckgo', true) }}"
+open_webui_web_search_result_count: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT') | default(3, true) | int }}"
+open_webui_web_search_concurrent_requests: "{{ lookup('env', 'OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS') | default(10, true) | int }}"
 
 # TCP/IP & カーネル・リソース チューニング設定
 sysctl_somaxconn: "{{ lookup('env', 'SYSCTL_SOMAXCONN') | default(65535, true) | int }}"

@@ -114,6 +114,10 @@
 | `OPEN_WEBUI_PORT` | Open WebUI 待受ポート | `8080` |
 | `OPEN_WEBUI_STORAGE_CLASS` | Open WebUI データ用 StorageClass | `local-path` |
 | `OPEN_WEBUI_DEFAULT_LOCALE` | Open WebUI デフォルト言語ロケール | `ja-JP` |
+| `OPEN_WEBUI_WEB_SEARCH_ENABLED` | Open WebUI インターネット Web 検索 (RAG) 有効化 | `true` |
+| `OPEN_WEBUI_WEB_SEARCH_ENGINE` | Open WebUI Web 検索エンジン (duckduckgo / searxng 等) | `duckduckgo` |
+| `OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT` | Open WebUI Web 検索取得結果件数 | `3` |
+| `OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS` | Open WebUI Web 検索並列リクエスト数 | `10` |
 | `AMD_GPU_PLUGIN_ENABLED` | AMD GPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_EXPORTER_ENABLED` | AMD NPU Prometheus Exporter 有効化 | `true` |

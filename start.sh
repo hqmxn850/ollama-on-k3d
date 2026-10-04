@@ -290,6 +290,10 @@ EXTRA_VARS=$(jq -n \
   --arg open_webui_memory_request "${OPEN_WEBUI_MEMORY_REQUEST:-512Mi}" \
   --arg open_webui_memory_limit "${OPEN_WEBUI_MEMORY_LIMIT:-4Gi}" \
   --arg open_webui_rollout_timeout "${OPEN_WEBUI_ROLLOUT_TIMEOUT:-300s}" \
+  --argjson open_webui_web_search_enabled "${OPEN_WEBUI_WEB_SEARCH_ENABLED:-true}" \
+  --arg open_webui_web_search_engine "${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo}" \
+  --argjson open_webui_web_search_result_count "${OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT:-3}" \
+  --argjson open_webui_web_search_concurrent_requests "${OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS:-10}" \
   --argjson sysctl_somaxconn "${SYSCTL_SOMAXCONN:-65535}" \
   --argjson sysctl_tcp_max_syn_backlog "${SYSCTL_TCP_MAX_SYN_BACKLOG:-65535}" \
   --argjson sysctl_netdev_max_backlog "${SYSCTL_NETDEV_MAX_BACKLOG:-65535}" \
@@ -508,6 +512,10 @@ EXTRA_VARS=$(jq -n \
     open_webui_memory_request: $open_webui_memory_request,
     open_webui_memory_limit: $open_webui_memory_limit,
     open_webui_rollout_timeout: $open_webui_rollout_timeout,
+    open_webui_web_search_enabled: $open_webui_web_search_enabled,
+    open_webui_web_search_engine: $open_webui_web_search_engine,
+    open_webui_web_search_result_count: $open_webui_web_search_result_count,
+    open_webui_web_search_concurrent_requests: $open_webui_web_search_concurrent_requests,
     sysctl_somaxconn: $sysctl_somaxconn,
     sysctl_tcp_max_syn_backlog: $sysctl_tcp_max_syn_backlog,
     sysctl_netdev_max_backlog: $sysctl_netdev_max_backlog,
@@ -851,10 +859,10 @@ if [[ "$CHECK_MODE" == false && "${OLLAMA_ENABLED:-true}" == true \
         -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
 
       if [[ -n "${OWUI_POD}" ]]; then
-        log "Open WebUI の標準設定 (モデル / ロケール) を更新中 (pod: ${OWUI_POD}, model: ${REGISTERED_MODEL:-なし}, locale: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP})..."
+        log "Open WebUI の標準設定 (モデル / ロケール / Web検索) を更新中 (pod: ${OWUI_POD}, model: ${REGISTERED_MODEL:-なし}, locale: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}, search: ${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo})..."
         if kubectl -n "${OWUI_NAMESPACE}" exec -i "${OWUI_POD}" -- sh -c \
-          'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$1" "$2"' \
-          sh "${REGISTERED_MODEL}" "${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}" <<'PYEOF'
+          'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$@"' \
+          sh "${REGISTERED_MODEL}" "${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}" "${OPEN_WEBUI_WEB_SEARCH_ENABLED:-true}" "${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo}" "${OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT:-3}" "${OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS:-10}" <<'PYEOF'
 import asyncio
 import json
 import sqlite3
@@ -864,10 +872,24 @@ from open_webui.models.config import Config
 
 model_id = sys.argv[1] if len(sys.argv) > 1 else ""
 locale = sys.argv[2] if len(sys.argv) > 2 else "ja-JP"
+web_search_enabled = sys.argv[3] if len(sys.argv) > 3 else "true"
+web_search_engine = sys.argv[4] if len(sys.argv) > 4 else "duckduckgo"
+try:
+    web_search_count = int(sys.argv[5]) if len(sys.argv) > 5 else 3
+except Exception:
+    web_search_count = 3
+try:
+    web_search_concurrent = int(sys.argv[6]) if len(sys.argv) > 6 else 10
+except Exception:
+    web_search_concurrent = 10
 
 updates = {
     "ui.default_locale": locale,
     "ui.default_interface_settings": {"locale": locale},
+    "web.search.enable": (web_search_enabled.lower() == "true"),
+    "web.search.engine": web_search_engine,
+    "web.search.result_count": web_search_count,
+    "web.search.concurrent_requests": web_search_concurrent,
 }
 if model_id:
     updates["ui.default_models"] = model_id
@@ -880,6 +902,8 @@ if model_id:
     print("ui.default_pinned_models =", asyncio.run(Config.get("ui.default_pinned_models")))
 print("ui.default_locale =", asyncio.run(Config.get("ui.default_locale")))
 print("ui.default_interface_settings =", asyncio.run(Config.get("ui.default_interface_settings")))
+print("web.search.enable =", asyncio.run(Config.get("web.search.enable")))
+print("web.search.engine =", asyncio.run(Config.get("web.search.engine")))
 
 try:
     conn = sqlite3.connect("/app/backend/data/webui.db")

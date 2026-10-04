@@ -101,6 +101,15 @@ extraEnvVars:
     value: "http://oga.{{ oga_namespace | default('oga') }}.svc.cluster.local:{{ oga_port | default(8000) }}/v1"
   - name: OPENAI_API_KEYS
     value: "none"
+  # Web 検索 (RAG Web Search) 設定
+  - name: ENABLE_WEB_SEARCH
+    value: "{{ open_webui_web_search_enabled | default(true) | string | lower }}"
+  - name: WEB_SEARCH_ENGINE
+    value: {{ open_webui_web_search_engine | default('duckduckgo') | quote }}
+  - name: WEB_SEARCH_RESULT_COUNT
+    value: "{{ open_webui_web_search_result_count | default(3) | string }}"
+  - name: WEB_SEARCH_CONCURRENT_REQUESTS
+    value: "{{ open_webui_web_search_concurrent_requests | default(10) | string }}"
 
 # フロントエンド静的スクリプト (loader.js) による初回アクセス時のロケール自動適用
 volumeMounts:

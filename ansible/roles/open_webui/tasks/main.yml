@@ -60,11 +60,11 @@
   ansible.builtin.debug:
     msg: "{{ open_webui_pods_status.stdout_lines | default([]) }}"
 
-- name: Open WebUI ロケールおよびインターフェース設定を DB に反映
+- name: Open WebUI ロケールおよびインターフェース・Web検索設定を DB に反映
   ansible.builtin.command: >-
     kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui --
-    sh -c 'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$1"'
-    sh "{{ open_webui_default_locale | default('ja-JP') }}"
+    sh -c 'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$@"'
+    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}"
   args:
     stdin: |
       import asyncio
@@ -76,12 +76,29 @@
       from open_webui.models.config import Config
 
       locale = sys.argv[1]
+      web_search_enabled = sys.argv[2] if len(sys.argv) > 2 else "True"
+      web_search_engine = sys.argv[3] if len(sys.argv) > 3 else "duckduckgo"
+      try:
+          web_search_count = int(sys.argv[4]) if len(sys.argv) > 4 else 3
+      except Exception:
+          web_search_count = 3
+      try:
+          web_search_concurrent = int(sys.argv[5]) if len(sys.argv) > 5 else 10
+      except Exception:
+          web_search_concurrent = 10
+
       asyncio.run(Config.upsert({
           "ui.default_locale": locale,
           "ui.default_interface_settings": {"locale": locale},
+          "web.search.enable": (web_search_enabled.lower() == "true"),
+          "web.search.engine": web_search_engine,
+          "web.search.result_count": web_search_count,
+          "web.search.concurrent_requests": web_search_concurrent,
       }))
       print("ui.default_locale =", asyncio.run(Config.get("ui.default_locale")))
       print("ui.default_interface_settings =", asyncio.run(Config.get("ui.default_interface_settings")))
+      print("web.search.enable =", asyncio.run(Config.get("web.search.enable")))
+      print("web.search.engine =", asyncio.run(Config.get("web.search.engine")))
 
       try:
           conn = sqlite3.connect("/app/backend/data/webui.db")
