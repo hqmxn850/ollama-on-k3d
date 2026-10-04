@@ -189,7 +189,7 @@ grafana_replicas: "{{ lookup('env', 'GRAFANA_REPLICAS') | default(1, true) | int
 grafana_db_password: "{{ lookup('env', 'GRAFANA_DB_PASSWORD') | default('grafana-db-2026', true) }}"
 grafana_db_max_open_conn: "{{ lookup('env', 'GRAFANA_DB_MAX_OPEN_CONN') | default(20, true) | int }}"
 grafana_db_max_idle_conn: "{{ lookup('env', 'GRAFANA_DB_MAX_IDLE_CONN') | default(10, true) | int }}"
-kube_prometheus_stack_chart_version: "{{ lookup('env', 'KUBE_PROMETHEUS_STACK_CHART_VERSION') | default('91.4.1', true) }}"
+kube_prometheus_stack_chart_version: "{{ lookup('env', 'KUBE_PROMETHEUS_STACK_CHART_VERSION') | default('91.9.0', true) }}"
 rancher_monitoring_dashboards_chart_version: "{{ lookup('env', 'RANCHER_MONITORING_DASHBOARDS_CHART_VERSION') | default('110.0.0+up0.1.2', true) }}"
 alertmanager_replicas: "{{ lookup('env', 'ALERTMANAGER_REPLICAS') | default(1, true) | int }}"
 monitoring_proxy_replicas: "{{ lookup('env', 'MONITORING_PROXY_REPLICAS') | default(1, true) | int }}"

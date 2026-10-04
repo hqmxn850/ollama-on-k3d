@@ -216,7 +216,7 @@ EXTRA_VARS=$(jq -n \
   --arg keycloak_pg_chart_version "${KEYCLOAK_PG_CHART_VERSION:-16.7.27}" \
   --arg keycloak_chart_version "${KEYCLOAK_CHART_VERSION:-3.0.12}" \
   --arg rancher_chart_version "${RANCHER_CHART_VERSION:-2.15.2}" \
-  --arg kube_prometheus_stack_chart_version "${KUBE_PROMETHEUS_STACK_CHART_VERSION:-91.4.1}" \
+  --arg kube_prometheus_stack_chart_version "${KUBE_PROMETHEUS_STACK_CHART_VERSION:-91.9.0}" \
   --arg rancher_monitoring_dashboards_chart_version "${RANCHER_MONITORING_DASHBOARDS_CHART_VERSION:-110.0.1+up0.1.4}" \
   --arg pgadmin_image "${PGADMIN_IMAGE:-docker.io/dpage/pgadmin4:latest}" \
   --argjson amd_gpu_plugin_enabled "${AMD_GPU_PLUGIN_ENABLED:-true}" \
@@ -551,7 +551,7 @@ log "  - cert-manager:       ${CERT_MANAGER_CHART_VERSION:-v1.21.2}"
 log "  - keycloak-pg:        ${KEYCLOAK_PG_CHART_VERSION:-16.3.2}"
 log "  - keycloak:           ${KEYCLOAK_CHART_VERSION:-3.0.12}"
 log "  - rancher:            ${RANCHER_CHART_VERSION:-2.15.2}"
-log "  - monitoring:         ${KUBE_PROMETHEUS_STACK_CHART_VERSION:-91.4.1}"
+log "  - monitoring:         ${KUBE_PROMETHEUS_STACK_CHART_VERSION:-91.9.0}"
 log "  - ollama:             ${OLLAMA_CHART_VERSION:-1.84.0}"
 log "  - open-webui:         ${OPEN_WEBUI_CHART_VERSION:-16.6.0}"
 

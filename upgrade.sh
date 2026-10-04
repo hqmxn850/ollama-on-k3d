@@ -385,7 +385,7 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
         # アップグレード試行 (新チャートのデフォルト値を反映しつつ既存 values を再利用)
         upgraded_ok=false
         helm_err=$(mktemp)
-        upgrade_flags=(--namespace "$r_ns" --reset-then-reuse-values --wait --timeout="${HELM_TIMEOUT:-15m}")
+        upgrade_flags=(--namespace "$r_ns" --reset-then-reuse-values --force-conflicts --wait --timeout="${HELM_TIMEOUT:-15m}")
         if [[ "$r_name" == "keycloak-pg" ]]; then
           upgrade_flags+=(--set "global.defaultFips=restricted")
         fi
@@ -395,9 +395,9 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
         else
           warn "  -> 初期アップグレードに失敗: $(tail -1 "$helm_err")"
           # FIPS または必須パラメータ不足エラーの自動修復再試行
-          extra_args=()
+          extra_args=(--force-conflicts)
           if grep -qi "defaultFips\|fips" "$helm_err" || [[ "$r_name" == "keycloak-pg" ]]; then
-            extra_args=(--set "global.defaultFips=restricted")
+            extra_args+=(--set "global.defaultFips=restricted")
           fi
           tmp_vals=$(mktemp)
           helm get values "$r_name" -n "$r_ns" > "$tmp_vals" 2>/dev/null || true
