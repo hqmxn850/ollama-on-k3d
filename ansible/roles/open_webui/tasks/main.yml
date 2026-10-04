@@ -79,7 +79,7 @@
   ansible.builtin.command: >-
     kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui --
     sh -c 'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$@"'
-    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}" "{{ open_webui_web_search_bypass_web_loader | default(true) | string }}" "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string }}"
+    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}" "{{ open_webui_web_search_bypass_web_loader | default(true) | string }}" "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string }}" "{{ open_webui_google_drive_integration_enabled | default(false) | string }}" "{{ open_webui_google_drive_client_id | default('') }}" "{{ open_webui_google_drive_api_key | default('') }}"
   args:
     stdin: |
       import asyncio
@@ -146,6 +146,9 @@
           web_search_concurrent = 10
       bypass_web_loader = sys.argv[6] if len(sys.argv) > 6 else "True"
       bypass_embedding = sys.argv[7] if len(sys.argv) > 7 else "True"
+      gdrive_enabled = sys.argv[8] if len(sys.argv) > 8 else "False"
+      gdrive_client_id = sys.argv[9] if len(sys.argv) > 9 else ""
+      gdrive_api_key = sys.argv[10] if len(sys.argv) > 10 else ""
 
       asyncio.run(Config.upsert({
           "ui.default_locale": locale,
@@ -157,6 +160,9 @@
           "web.search.bypass_web_loader": (bypass_web_loader.lower() == "true"),
           "web.search.bypass_embedding_and_retrieval": (bypass_embedding.lower() == "true"),
           "web.search.ddgs_backend": "auto",
+          "google_drive.enable": (gdrive_enabled.lower() == "true"),
+          "google_drive.client_id": gdrive_client_id,
+          "google_drive.api_key": gdrive_api_key,
       }))
       print("ui.default_locale =", asyncio.run(Config.get("ui.default_locale")))
       print("ui.default_interface_settings =", asyncio.run(Config.get("ui.default_interface_settings")))
@@ -164,6 +170,7 @@
       print("web.search.engine =", asyncio.run(Config.get("web.search.engine")))
       print("web.search.bypass_web_loader =", asyncio.run(Config.get("web.search.bypass_web_loader")))
       print("web.search.bypass_embedding_and_retrieval =", asyncio.run(Config.get("web.search.bypass_embedding_and_retrieval")))
+      print("google_drive.enable =", asyncio.run(Config.get("google_drive.enable")))
 
       try:
           from open_webui.models.users import Users
