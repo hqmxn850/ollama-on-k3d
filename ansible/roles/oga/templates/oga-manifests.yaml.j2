@@ -44,6 +44,7 @@ data:
     import os
     import json
     import logging
+    import asyncio
     from typing import List, Optional, Any
     from fastapi import FastAPI, HTTPException, Request
     from fastapi.responses import Response, StreamingResponse
@@ -54,12 +55,13 @@ data:
     NPU_FLM_URL = os.environ.get("NPU_FLM_URL", "").rstrip("/")
     NPU_DEFAULT_MODEL = os.environ.get("NPU_DEFAULT_MODEL", "qwen3:0.6b")
     MODELS_DIR = os.environ.get("MODELS_DIR", "/models")
-    NPU_FLM_CLIENT_TIMEOUT = float(os.environ.get("NPU_FLM_CLIENT_TIMEOUT", "120.0"))
+    NPU_FLM_CLIENT_TIMEOUT = float(os.environ.get("NPU_FLM_CLIENT_TIMEOUT", "300.0"))
     NPU_FLM_HEALTH_TIMEOUT = float(os.environ.get("NPU_FLM_HEALTH_TIMEOUT", "3.0"))
     NPU_FLM_PROBE_PATH = os.environ.get("NPU_FLM_PROBE_PATH", "/v1/models")
 
     request_counter = 0
     tokens_counter = 0
+    npu_lock = asyncio.Lock()
     http_client = httpx.AsyncClient(timeout=NPU_FLM_CLIENT_TIMEOUT)
 
     def get_local_onnx_models():
@@ -153,23 +155,31 @@ data:
                 async def event_generator():
                     global tokens_counter
                     try:
-                        req = http_client.build_request("POST", target_url, json=body, timeout=120.0)
-                        r = await http_client.send(req, stream=True)
-                        async for chunk in r.aiter_bytes():
-                            tokens_counter += 1
-                            yield chunk
+                        async with npu_lock:
+                            req = http_client.build_request("POST", target_url, json=body, timeout=NPU_FLM_CLIENT_TIMEOUT)
+                            r = await http_client.send(req, stream=True)
+                            async for chunk in r.aiter_bytes():
+                                tokens_counter += 1
+                                yield chunk
+                    except httpx.TimeoutException:
+                        yield f"data: {{\"error\": \"NPU request timed out after {NPU_FLM_CLIENT_TIMEOUT}s\"}}\n\n".encode()
                     except Exception as e:
-                        yield f"data: {{\"error\": \"NPU proxy error: {str(e)}\"}}\n\n".encode()
+                        err_msg = str(e) or e.__class__.__name__
+                        yield f"data: {{\"error\": \"NPU proxy error: {err_msg}\"}}\n\n".encode()
                 return StreamingResponse(event_generator(), media_type="text/event-stream")
             else:
                 try:
-                    r = await http_client.post(target_url, json=body, timeout=120.0)
-                    data = r.json()
-                    if "usage" in data and "completion_tokens" in data["usage"]:
-                        tokens_counter += data["usage"]["completion_tokens"]
-                    return data
+                    async with npu_lock:
+                        r = await http_client.post(target_url, json=body, timeout=NPU_FLM_CLIENT_TIMEOUT)
+                        data = r.json()
+                        if "usage" in data and "completion_tokens" in data["usage"]:
+                            tokens_counter += data["usage"]["completion_tokens"]
+                        return data
+                except httpx.TimeoutException:
+                    raise HTTPException(status_code=504, detail=f"NPU request timed out after {NPU_FLM_CLIENT_TIMEOUT}s")
                 except Exception as e:
-                    raise HTTPException(status_code=502, detail=f"Failed to communicate with NPU backend: {str(e)}")
+                    err_msg = str(e) or e.__class__.__name__
+                    raise HTTPException(status_code=502, detail=f"Failed to communicate with NPU backend: {err_msg}")
 
         raise HTTPException(status_code=503, detail="No NPU backend configured and local ONNX model not found")
 
@@ -188,13 +198,17 @@ data:
         }
         if NPU_FLM_URL:
             try:
-                r = await http_client.post(f"{NPU_FLM_URL}/v1/chat/completions", json=chat_payload, timeout=120.0)
-                data = r.json()
-                resp_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                tokens_counter += data.get("usage", {}).get("completion_tokens", 10)
-                return {"response": resp_text, "model": model, "done": True}
+                async with npu_lock:
+                    r = await http_client.post(f"{NPU_FLM_URL}/v1/chat/completions", json=chat_payload, timeout=NPU_FLM_CLIENT_TIMEOUT)
+                    data = r.json()
+                    resp_text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    tokens_counter += data.get("usage", {}).get("completion_tokens", 10)
+                    return {"response": resp_text, "model": model, "done": True}
+            except httpx.TimeoutException:
+                return {"response": f"NPU error: Request timed out after {NPU_FLM_CLIENT_TIMEOUT}s", "done": True}
             except Exception as e:
-                return {"response": f"NPU error: {str(e)}", "done": True}
+                err_msg = str(e) or e.__class__.__name__
+                return {"response": f"NPU error: {err_msg}", "done": True}
 
         return {"response": f"OGA Gateway ready. Prompt: {prompt[:50]}...", "done": True}
 {% endraw %}
@@ -244,7 +258,7 @@ spec:
             - name: NPU_DEFAULT_MODEL
               value: "{{ npu_flm_default_model | default('qwen3:0.6b') }}"
             - name: NPU_FLM_CLIENT_TIMEOUT
-              value: "{{ npu_flm_client_timeout | default(120.0) | string }}"
+              value: "{{ npu_flm_client_timeout | default(300.0) | string }}"
             - name: NPU_FLM_HEALTH_TIMEOUT
               value: "{{ npu_flm_health_timeout | default(3.0) | string }}"
             - name: NPU_FLM_PROBE_PATH

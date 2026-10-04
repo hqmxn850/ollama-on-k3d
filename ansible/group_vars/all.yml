@@ -306,7 +306,7 @@ npu_flm_probe_path: "{{ lookup('env', 'NPU_FLM_PROBE_PATH') | default('/v1/model
 npu_flm_startup_retries: "{{ lookup('env', 'NPU_FLM_STARTUP_RETRIES') | default(15, true) | int }}"
 npu_flm_startup_retry_interval: "{{ lookup('env', 'NPU_FLM_STARTUP_RETRY_INTERVAL') | default(1, true) | int }}"
 npu_flm_kernel_dir: "{{ lookup('env', 'NPU_FLM_KERNEL_DIR') | default('/opt/fastflowlm/lib', true) }}"
-npu_flm_client_timeout: "{{ lookup('env', 'NPU_FLM_CLIENT_TIMEOUT') | default(120.0, true) | float }}"
+npu_flm_client_timeout: "{{ lookup('env', 'NPU_FLM_CLIENT_TIMEOUT') | default(300.0, true) | float }}"
 npu_flm_health_timeout: "{{ lookup('env', 'NPU_FLM_HEALTH_TIMEOUT') | default(3.0, true) | float }}"
 
 # Open WebUI (Local AI Web チャット基盤) 設定 (Worker ノード配置)

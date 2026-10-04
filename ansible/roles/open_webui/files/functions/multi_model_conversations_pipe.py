@@ -27,7 +27,7 @@ class Pipe:
             description="OGA / NPU (FastFlowLM) サービス URL"
         )
         TIMEOUT_SECONDS: int = Field(
-            default=180,
+            default=300,
             description="各モデルのリクエストタイムアウト（秒）"
         )
 
@@ -80,7 +80,7 @@ class Pipe:
         except Exception as e:
             return f"通信エラー: {str(e)}"
 
-    async def pipe(self, body: dict) -> Union[str, AsyncGenerator[str, None]]:
+    async def pipe(self, body: dict, __user__: dict = None, **kwargs) -> Union[str, AsyncGenerator[str, None]]:
         messages = body.get("messages", [])
         if not messages:
             return "メッセージが指定されていません。"

@@ -139,7 +139,7 @@
 | `NPU_FLM_STARTUP_RETRIES` | FastFlowLM 起動待機リトライ回数 | `15` |
 | `NPU_FLM_STARTUP_RETRY_INTERVAL` | FastFlowLM 起動待機リトライ間隔 (秒) | `1` |
 | `NPU_FLM_KERNEL_DIR` | FastFlowLM NPU カーネル配置ディレクトリ | `/opt/fastflowlm/lib` |
-| `NPU_FLM_CLIENT_TIMEOUT` | OGA Gateway から FastFlowLM へのクライアントタイムアウト (秒) | `120.0` |
+| `NPU_FLM_CLIENT_TIMEOUT` | OGA Gateway から FastFlowLM へのクライアントタイムアウト (秒) | `300.0` |
 | `NPU_FLM_HEALTH_TIMEOUT` | OGA Gateway から FastFlowLM へのヘルスチェックタイムアウト (秒) | `3.0` |
 
 ---
