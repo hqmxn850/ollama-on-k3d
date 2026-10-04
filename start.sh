@@ -267,6 +267,14 @@ EXTRA_VARS=$(jq -n \
   --argjson npu_flm_port "${NPU_FLM_PORT:-52625}" \
   --arg npu_flm_default_model "${NPU_FLM_DEFAULT_MODEL:-qwen3:0.6b}" \
   --arg npu_flm_host_ip "${NPU_FLM_HOST_IP:-10.89.0.1}" \
+  --arg npu_flm_bind_host "${NPU_FLM_BIND_HOST:-0.0.0.0}" \
+  --arg npu_flm_probe_host "${NPU_FLM_PROBE_HOST:-127.0.0.1}" \
+  --arg npu_flm_probe_path "${NPU_FLM_PROBE_PATH:-/v1/models}" \
+  --argjson npu_flm_startup_retries "${NPU_FLM_STARTUP_RETRIES:-15}" \
+  --argjson npu_flm_startup_retry_interval "${NPU_FLM_STARTUP_RETRY_INTERVAL:-1}" \
+  --arg npu_flm_kernel_dir "${NPU_FLM_KERNEL_DIR:-/opt/fastflowlm/lib}" \
+  --argjson npu_flm_client_timeout "${NPU_FLM_CLIENT_TIMEOUT:-120.0}" \
+  --argjson npu_flm_health_timeout "${NPU_FLM_HEALTH_TIMEOUT:-3.0}" \
   --argjson open_webui_enabled "${OPEN_WEBUI_ENABLED:-true}" \
   --arg open_webui_chart_version "${OPEN_WEBUI_CHART_VERSION:-16.6.0}" \
   --arg open_webui_image_tag "${OPEN_WEBUI_IMAGE_TAG:-v0.11.4}" \
@@ -479,6 +487,14 @@ EXTRA_VARS=$(jq -n \
     npu_flm_port: $npu_flm_port,
     npu_flm_default_model: $npu_flm_default_model,
     npu_flm_host_ip: $npu_flm_host_ip,
+    npu_flm_bind_host: $npu_flm_bind_host,
+    npu_flm_probe_host: $npu_flm_probe_host,
+    npu_flm_probe_path: $npu_flm_probe_path,
+    npu_flm_startup_retries: $npu_flm_startup_retries,
+    npu_flm_startup_retry_interval: $npu_flm_startup_retry_interval,
+    npu_flm_kernel_dir: $npu_flm_kernel_dir,
+    npu_flm_client_timeout: $npu_flm_client_timeout,
+    npu_flm_health_timeout: $npu_flm_health_timeout,
     open_webui_enabled: $open_webui_enabled,
     open_webui_chart_version: $open_webui_chart_version,
     open_webui_image_tag: $open_webui_image_tag,
@@ -582,7 +598,8 @@ fi
 if [[ "$CHECK_MODE" == false && "${NPU_FLM_ENABLED:-true}" == true ]]; then
   if command -v flm >/dev/null 2>&1; then
     log "AMD XDNA NPU (FastFlowLM) の状態を確認中..."
-    if [[ ! -d "/opt/fastflowlm/lib" ]]; then
+    FLM_KERNEL_DIR="${NPU_FLM_KERNEL_DIR:-/opt/fastflowlm/lib}"
+    if [[ ! -d "${FLM_KERNEL_DIR}" ]]; then
       log "FastFlowLM NPU カーネルが見つからないため取得中 (sudo flm-fetch-kernels)..."
       sudo flm-fetch-kernels || warn "flm-fetch-kernels に失敗しました"
     fi
@@ -598,21 +615,27 @@ if [[ "$CHECK_MODE" == false && "${NPU_FLM_ENABLED:-true}" == true ]]; then
     fi
 
     FLM_PORT="${NPU_FLM_PORT:-52625}"
-    if ! curl -s "http://127.0.0.1:${FLM_PORT}/v1/models" >/dev/null 2>&1; then
+    FLM_BIND_HOST="${NPU_FLM_BIND_HOST:-0.0.0.0}"
+    FLM_PROBE_HOST="${NPU_FLM_PROBE_HOST:-127.0.0.1}"
+    FLM_PROBE_PATH="${NPU_FLM_PROBE_PATH:-/v1/models}"
+    FLM_RETRIES="${NPU_FLM_STARTUP_RETRIES:-15}"
+    FLM_INTERVAL="${NPU_FLM_STARTUP_RETRY_INTERVAL:-1}"
+
+    if ! curl -s "http://${FLM_PROBE_HOST}:${FLM_PORT}${FLM_PROBE_PATH}" >/dev/null 2>&1; then
       log "FastFlowLM API サーバーをポート ${FLM_PORT} で起動中..."
       PID_FILE="/tmp/flm_serve_${ACTUAL_USER}.pid"
       LOG_FILE="/tmp/flm_serve_${ACTUAL_USER}.log"
-      nohup "${FLM_CMD[@]}" serve "${FLM_MODEL}" --host 0.0.0.0 --port "${FLM_PORT}" > "${LOG_FILE}" 2>&1 &
+      nohup "${FLM_CMD[@]}" serve "${FLM_MODEL}" --host "${FLM_BIND_HOST}" --port "${FLM_PORT}" > "${LOG_FILE}" 2>&1 &
       echo $! > "${PID_FILE}"
 
       FLM_STARTED=false
-      for _i in $(seq 1 15); do
-        if curl -s "http://127.0.0.1:${FLM_PORT}/v1/models" >/dev/null 2>&1; then
+      for _i in $(seq 1 "${FLM_RETRIES}"); do
+        if curl -s "http://${FLM_PROBE_HOST}:${FLM_PORT}${FLM_PROBE_PATH}" >/dev/null 2>&1; then
           FLM_STARTED=true
           succ "FastFlowLM API サーバーが正常に起動しました (ポート: ${FLM_PORT}, モデル: ${FLM_MODEL})"
           break
         fi
-        sleep 1
+        sleep "${FLM_INTERVAL}"
       done
       if [[ "$FLM_STARTED" == false ]]; then
         warn "FastFlowLM API サーバーの起動確認がタイムアウトしました。ログを確認してください: ${LOG_FILE}"

@@ -54,10 +54,13 @@ data:
     NPU_FLM_URL = os.environ.get("NPU_FLM_URL", "").rstrip("/")
     NPU_DEFAULT_MODEL = os.environ.get("NPU_DEFAULT_MODEL", "qwen3:0.6b")
     MODELS_DIR = os.environ.get("MODELS_DIR", "/models")
+    NPU_FLM_CLIENT_TIMEOUT = float(os.environ.get("NPU_FLM_CLIENT_TIMEOUT", "120.0"))
+    NPU_FLM_HEALTH_TIMEOUT = float(os.environ.get("NPU_FLM_HEALTH_TIMEOUT", "3.0"))
+    NPU_FLM_PROBE_PATH = os.environ.get("NPU_FLM_PROBE_PATH", "/v1/models")
 
     request_counter = 0
     tokens_counter = 0
-    http_client = httpx.AsyncClient(timeout=120.0)
+    http_client = httpx.AsyncClient(timeout=NPU_FLM_CLIENT_TIMEOUT)
 
     def get_local_onnx_models():
         models = []
@@ -77,7 +80,7 @@ data:
         flm_status = "disabled"
         if NPU_FLM_URL:
             try:
-                r = await http_client.get(f"{NPU_FLM_URL}/v1/models", timeout=3.0)
+                r = await http_client.get(f"{NPU_FLM_URL}{NPU_FLM_PROBE_PATH}", timeout=NPU_FLM_HEALTH_TIMEOUT)
                 flm_status = "healthy" if r.status_code == 200 else f"unhealthy ({r.status_code})"
             except Exception as e:
                 flm_status = f"unreachable: {str(e)}"
@@ -240,6 +243,12 @@ spec:
               value: "{{ 'http://' ~ npu_flm_host_ip ~ ':' ~ npu_flm_port if (npu_flm_enabled | default(true) | bool) else '' }}"
             - name: NPU_DEFAULT_MODEL
               value: "{{ npu_flm_default_model | default('qwen3:0.6b') }}"
+            - name: NPU_FLM_CLIENT_TIMEOUT
+              value: "{{ npu_flm_client_timeout | default(120.0) | string }}"
+            - name: NPU_FLM_HEALTH_TIMEOUT
+              value: "{{ npu_flm_health_timeout | default(3.0) | string }}"
+            - name: NPU_FLM_PROBE_PATH
+              value: "{{ npu_flm_probe_path | default('/v1/models') | quote }}"
           resources:
             requests:
               cpu: {{ oga_cpu_request | default('500m') | quote }}

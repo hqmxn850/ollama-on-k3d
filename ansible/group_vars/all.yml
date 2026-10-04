@@ -300,6 +300,14 @@ npu_flm_enabled: "{{ lookup('env', 'NPU_FLM_ENABLED') | default(true, true) | bo
 npu_flm_port: "{{ lookup('env', 'NPU_FLM_PORT') | default(52625, true) | int }}"
 npu_flm_default_model: "{{ lookup('env', 'NPU_FLM_DEFAULT_MODEL') | default('qwen3:0.6b', true) }}"
 npu_flm_host_ip: "{{ lookup('env', 'NPU_FLM_HOST_IP') | default(podman_network_gateway | default('10.89.0.1'), true) }}"
+npu_flm_bind_host: "{{ lookup('env', 'NPU_FLM_BIND_HOST') | default('0.0.0.0', true) }}"
+npu_flm_probe_host: "{{ lookup('env', 'NPU_FLM_PROBE_HOST') | default('127.0.0.1', true) }}"
+npu_flm_probe_path: "{{ lookup('env', 'NPU_FLM_PROBE_PATH') | default('/v1/models', true) }}"
+npu_flm_startup_retries: "{{ lookup('env', 'NPU_FLM_STARTUP_RETRIES') | default(15, true) | int }}"
+npu_flm_startup_retry_interval: "{{ lookup('env', 'NPU_FLM_STARTUP_RETRY_INTERVAL') | default(1, true) | int }}"
+npu_flm_kernel_dir: "{{ lookup('env', 'NPU_FLM_KERNEL_DIR') | default('/opt/fastflowlm/lib', true) }}"
+npu_flm_client_timeout: "{{ lookup('env', 'NPU_FLM_CLIENT_TIMEOUT') | default(120.0, true) | float }}"
+npu_flm_health_timeout: "{{ lookup('env', 'NPU_FLM_HEALTH_TIMEOUT') | default(3.0, true) | float }}"
 
 # Open WebUI (Local AI Web チャット基盤) 設定 (Worker ノード配置)
 open_webui_enabled: "{{ lookup('env', 'OPEN_WEBUI_ENABLED') | default(true, true) | bool }}"

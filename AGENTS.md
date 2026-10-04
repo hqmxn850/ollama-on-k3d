@@ -122,6 +122,14 @@
 | `NPU_FLM_PORT` | FastFlowLM API 待受ポート | `52625` |
 | `NPU_FLM_DEFAULT_MODEL` | FastFlowLM 標準 NPU モデル | `qwen3:0.6b` |
 | `NPU_FLM_HOST_IP` | FastFlowLM ホスト IP (Podman Gateway) | `10.89.0.1` |
+| `NPU_FLM_BIND_HOST` | FastFlowLM バインドホスト | `0.0.0.0` |
+| `NPU_FLM_PROBE_HOST` | FastFlowLM 内部死活監視ホスト | `127.0.0.1` |
+| `NPU_FLM_PROBE_PATH` | FastFlowLM 死活監視エンドポイント | `/v1/models` |
+| `NPU_FLM_STARTUP_RETRIES` | FastFlowLM 起動待機リトライ回数 | `15` |
+| `NPU_FLM_STARTUP_RETRY_INTERVAL` | FastFlowLM 起動待機リトライ間隔 (秒) | `1` |
+| `NPU_FLM_KERNEL_DIR` | FastFlowLM NPU カーネル配置ディレクトリ | `/opt/fastflowlm/lib` |
+| `NPU_FLM_CLIENT_TIMEOUT` | OGA Gateway から FastFlowLM へのクライアントタイムアウト (秒) | `120.0` |
+| `NPU_FLM_HEALTH_TIMEOUT` | OGA Gateway から FastFlowLM へのヘルスチェックタイムアウト (秒) | `3.0` |
 
 ---
 
