@@ -410,12 +410,15 @@
               if "q.webSearchEnabled??!1" in content:
                   content = content.replace("q.webSearchEnabled??!1", "q.webSearchEnabled??!0")
                   c_changed = True
+              if ".setIncludeFolders(!1)" in content:
+                  content = content.replace(".setIncludeFolders(!1)", ".setIncludeFolders(!0)")
+                  c_changed = True
               if c_changed:
                   with open(js_path, "w", encoding="utf-8") as f:
                       f.write(content)
-                  print(f"Patched webSearchEnabled defaults to true in {os.path.basename(js_path)}")
+                  print(f"Patched webSearchEnabled and Google Drive setIncludeFolders in {os.path.basename(js_path)}")
       except Exception as e:
-          print(f"Warning: Failed to patch frontend webSearchEnabled defaults: {e}")
+          print(f"Warning: Failed to patch frontend defaults: {e}")
 
       # Patch backend middleware to auto-enable web_search and inherit toolIds
       try:
