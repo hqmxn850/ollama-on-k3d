@@ -1074,13 +1074,21 @@ try:
 except Exception as e:
     print(f"Warning: Failed to patch frontend webSearchEnabled defaults: {e}")
 
-# Patch backend middleware to auto-enable web_search and inherit toolIds
+# Patch backend middleware to auto-enable web_search, override RAG bypass, and inherit toolIds
 try:
     mw_path = "/app/backend/open_webui/utils/middleware.py"
     if os.path.exists(mw_path):
         with open(mw_path, "r", encoding="utf-8") as f:
             content = f.read()
         changed = False
+
+        # Native FC 有効時でも RAG Web 検索を実行するようパッチ
+        target_rag = "                # Skip forced RAG web search when native FC is enabled - model can use web_search tool\n                if metadata.get('params', {}).get('function_calling') == 'legacy':\n                    form_data = await chat_web_search_handler(request, form_data, extra_params, user)"
+        repl_rag = "                # Execute RAG web search when web_search feature is requested (even if native FC enabled)\n                form_data = await chat_web_search_handler(request, form_data, extra_params, user)"
+        if target_rag in content:
+            content = content.replace(target_rag, repl_rag)
+            changed = True
+
         mw_target1 = "    features = form_data.pop('features', None) or {}\n    extra_params['__features__'] = features"
         mw_repl1 = "    features = form_data.pop('features', None) or {}\n    if 'web_search' not in features and await Config.get('web.search.enable'):\n        features['web_search'] = True\n    extra_params['__features__'] = features"
         if mw_target1 in content:
@@ -1096,7 +1104,7 @@ try:
         if changed:
             with open(mw_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            print("Patched backend middleware for default web_search and toolIds")
+            print("Patched backend middleware for default web_search, RAG bypass override, and toolIds")
 except Exception as e:
     print(f"Warning: Failed to patch backend middleware: {e}")
 PYEOF

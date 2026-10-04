@@ -151,41 +151,41 @@
           TOOL_NAME = "Web Search"
           TOOL_DESC = "DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。"
           TOOL_CONTENT = '''"""
-title: Web Search
-author: Open WebUI
-version: 1.0.0
-description: DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。
-"""
+          title: Web Search
+          author: Open WebUI
+          version: 1.0.0
+          description: DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。
+          """
 
-from ddgs import DDGS
+          from ddgs import DDGS
 
-class Tools:
-    def __init__(self):
-        pass
+          class Tools:
+              def __init__(self):
+                  pass
 
-    def search_web(self, query: str, count: int = 5) -> str:
-        """
-        インターネットを検索して最新の情報（ニュース、天気、事実など）を取得します。
-        :param query: 検索キーワードや質問
-        :param count: 取得する検索結果の件数 (デフォルト: 5)
-        :return: 検索結果（タイトル、URL、要約スニペット）
-        """
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(query, max_results=count))
-                if not results:
-                    return f"「{query}」に関する検索結果は見つかりませんでした。"
-                
-                output = []
-                for i, r in enumerate(results, 1):
-                    title = r.get("title", "")
-                    url = r.get("href", "")
-                    body = r.get("body", "")
-                    output.append(f"[{i}] {title}\\nURL: {url}\\n要約: {body}\\n")
-                return "\\n".join(output)
-        except Exception as e:
-            return f"検索エラー: {str(e)}"
-'''
+              def search_web(self, query: str, count: int = 5) -> str:
+                  """
+                  インターネットを検索して最新の情報（ニュース、天気、事実など）を取得します。
+                  :param query: 検索キーワードや質問
+                  :param count: 取得する検索結果の件数 (デフォルト: 5)
+                  :return: 検索結果（タイトル、URL、要約スニペット）
+                  """
+                  try:
+                      with DDGS() as ddgs:
+                          results = list(ddgs.text(query, max_results=count))
+                          if not results:
+                              return f"「{query}」に関する検索結果は見つかりませんでした。"
+                          
+                          output = []
+                          for i, r in enumerate(results, 1):
+                              title = r.get("title", "")
+                              url = r.get("href", "")
+                              body = r.get("body", "")
+                              output.append(f"[{i}] {title}\\nURL: {url}\\n要約: {body}\\n")
+                          return "\\n".join(output)
+                  except Exception as e:
+                      return f"検索エラー: {str(e)}"
+          '''
           async def register_tool():
               users_data = await Users.get_users()
               users_list = users_data.get("users", []) if isinstance(users_data, dict) else users_data
@@ -279,6 +279,13 @@ class Tools:
               with open(mw_path, "r", encoding="utf-8") as f:
                   content = f.read()
               changed = False
+              # Native FC 有効時でも RAG Web 検索を実行するようパッチ
+              target_rag = "                # Skip forced RAG web search when native FC is enabled - model can use web_search tool\n                if metadata.get('params', {}).get('function_calling') == 'legacy':\n                    form_data = await chat_web_search_handler(request, form_data, extra_params, user)"
+              repl_rag = "                # Execute RAG web search when web_search feature is requested (even if native FC enabled)\n                form_data = await chat_web_search_handler(request, form_data, extra_params, user)"
+              if target_rag in content:
+                  content = content.replace(target_rag, repl_rag)
+                  changed = True
+
               mw_target1 = "    features = form_data.pop('features', None) or {}\n    extra_params['__features__'] = features"
               mw_repl1 = "    features = form_data.pop('features', None) or {}\n    if 'web_search' not in features and await Config.get('web.search.enable'):\n        features['web_search'] = True\n    extra_params['__features__'] = features"
               if mw_target1 in content:
@@ -294,7 +301,7 @@ class Tools:
               if changed:
                   with open(mw_path, "w", encoding="utf-8") as f:
                       f.write(content)
-                  print("Patched backend middleware for default web_search and toolIds")
+                  print("Patched backend middleware for default web_search, RAG bypass override, and toolIds")
       except Exception as e:
           print(f"Warning: Failed to patch backend middleware: {e}")
   register: open_webui_locale_setup

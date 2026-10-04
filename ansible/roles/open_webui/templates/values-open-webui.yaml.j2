@@ -111,20 +111,91 @@ extraEnvVars:
   - name: WEB_SEARCH_CONCURRENT_REQUESTS
     value: "{{ open_webui_web_search_concurrent_requests | default(10) | string }}"
 
-# フロントエンド静的スクリプト (loader.js) による初回アクセス時のロケール自動適用
+# コンテナ起動時ラッパースクリプト (Web 検索・Function Calling 連携パッチの起動前自動適用)
+command:
+  - /bin/bash
+  - /app/entrypoint.sh
+
+# フロントエンド静的スクリプト (loader.js) による初回アクセス時のロケール自動適用 & エントリポイント
 volumeMounts:
   container:
+    - name: open-webui-entrypoint
+      mountPath: /app/entrypoint.sh
+      subPath: entrypoint.sh
     - name: open-webui-loader-js
       mountPath: /app/build/static/loader.js
       subPath: loader.js
 
 volumes:
+  - name: open-webui-entrypoint
+    configMap:
+      name: open-webui-entrypoint
+      defaultMode: 0755
   - name: open-webui-loader-js
     configMap:
       name: open-webui-loader-js
       defaultMode: 0644
 
 extraResources:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: open-webui-entrypoint
+      labels:
+        app.kubernetes.io/name: open-webui
+        app.kubernetes.io/component: open-webui
+    data:
+      entrypoint.sh: |
+        #!/usr/bin/env bash
+        set -e
+        # Open WebUI 起動前パッチ: Web 検索 (RAG DuckDuckGo) および Tool 連携の最適化
+        python3 - << 'PYEOF'
+        import os
+
+        try:
+            mw_path = "/app/backend/open_webui/utils/middleware.py"
+            if os.path.exists(mw_path):
+                with open(mw_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                changed = False
+
+                # 1. Native FC 有効時でも RAG Web 検索を実行するようパッチ
+                # (Qwen 等のローカル LLM が自律 Tool Call をスキップして『情報を持っていません』と答えるのを防止)
+                target_rag = """                # Skip forced RAG web search when native FC is enabled - model can use web_search tool
+                        if metadata.get('params', {}).get('function_calling') == 'legacy':
+                            form_data = await chat_web_search_handler(request, form_data, extra_params, user)"""
+                repl_rag = """                # Execute RAG web search when web_search feature is requested (even if native FC enabled)
+                        form_data = await chat_web_search_handler(request, form_data, extra_params, user)"""
+                if target_rag in content:
+                    content = content.replace(target_rag, repl_rag)
+                    changed = True
+
+                # 2. features に web_search が明示されていない場合、グローバル設定が有効なら自動補完
+                mw_target1 = "    features = form_data.pop('features', None) or {}\n    extra_params['__features__'] = features"
+                mw_repl1 = "    features = form_data.pop('features', None) or {}\n    if 'web_search' not in features and await Config.get('web.search.enable'):\n        features['web_search'] = True\n    extra_params['__features__'] = features"
+                if mw_target1 in content:
+                    content = content.replace(mw_target1, mw_repl1)
+                    changed = True
+
+                # 3. モデルメタデータから toolIds を自動継承
+                mw_target2 = "        # Server side tools\n        tool_ids = metadata.get('tool_ids', None)"
+                mw_repl2 = "        # Server side tools\n        tool_ids = metadata.get('tool_ids', None)\n        if not tool_ids and task_model_id in models:\n            tool_ids = list(models[task_model_id].get('info', {}).get('meta', {}).get('toolIds') or [])"
+                if mw_target2 in content:
+                    content = content.replace(mw_target2, mw_repl2)
+                    changed = True
+
+                if changed:
+                    with open(mw_path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                    print("Successfully patched Open WebUI middleware.py at container startup")
+                else:
+                    print("Open WebUI middleware.py already up-to-date")
+        except Exception as e:
+            print(f"Warning: Failed to patch middleware.py at startup: {e}")
+        PYEOF
+
+        exec bash /app/backend/start.sh "$@"
+
   - apiVersion: v1
     kind: ConfigMap
     metadata:
@@ -150,4 +221,5 @@ extraResources:
             console.error('Failed to initialize locale in loader.js:', e);
           }
         })();
+
 
