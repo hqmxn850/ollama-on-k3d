@@ -60,6 +60,21 @@
   ansible.builtin.debug:
     msg: "{{ open_webui_pods_status.stdout_lines | default([]) }}"
 
+- name: Ensure custom functions and tools directories exist in Open WebUI Pod
+  ansible.builtin.shell: |
+    kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui -- mkdir -p /app/backend/data/custom_functions /app/backend/data/custom_tools
+  changed_when: false
+
+- name: Copy custom functions to Open WebUI Pod
+  ansible.builtin.shell: |
+    kubectl cp "{{ role_path }}/files/functions/." "{{ open_webui_namespace }}/open-webui-0:/app/backend/data/custom_functions/"
+  changed_when: false
+
+- name: Copy custom tools to Open WebUI Pod
+  ansible.builtin.shell: |
+    kubectl cp "{{ role_path }}/files/tools/." "{{ open_webui_namespace }}/open-webui-0:/app/backend/data/custom_tools/"
+  changed_when: false
+
 - name: Open WebUI ロケールおよびインターフェース・Web検索設定を DB に反映
   ansible.builtin.command: >-
     kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui --
@@ -144,56 +159,28 @@
           print(f"Warning: Failed to patch index.html: {e}")
 
       try:
+          import glob
+          from open_webui.models.functions import Functions, FunctionForm, FunctionMeta
           from open_webui.models.tools import Tools, ToolForm, ToolMeta
           from open_webui.models.users import Users
+          from open_webui.models.models import Models, ModelForm, ModelMeta, ModelParams
           from open_webui.utils.tools import load_tool_module_by_id, get_tool_specs
 
-          TOOL_ID = "web_search"
-          TOOL_NAME = "Web Search"
-          TOOL_DESC = "DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。"
-          TOOL_CONTENT = '''"""
-          title: Web Search
-          author: Open WebUI
-          version: 1.0.0
-          description: DuckDuckGo を使用してインターネット上の最新ニュース、天気、情報を検索します。
-          """
+          def parse_metadata(content: str):
+              title = None
+              desc = ""
+              doc_match = re.search(r'"""(.*?)"""', content, re.DOTALL)
+              if doc_match:
+                  doc = doc_match.group(1)
+                  for line in doc.splitlines():
+                      line = line.strip()
+                      if line.startswith("title:"):
+                          title = line.split("title:", 1)[1].strip()
+                      elif line.startswith("description:"):
+                          desc = line.split("description:", 1)[1].strip()
+              return title, desc
 
-          from ddgs import DDGS
-
-          class Tools:
-              def __init__(self):
-                  pass
-
-              def search_web(self, query: str, count: int = 5, region: str = "jp-jp") -> str:
-                  """
-                  インターネットを検索して最新の情報（ニュース、天気、事実など）を取得します。
-                  :param query: 検索キーワードや質問
-                  :param count: 取得する検索結果の件数 (デフォルト: 5)
-                  :param region: 検索対象の地域コード (デフォルト: "jp-jp" 日本地域優先)
-                  :return: 検索結果（タイトル、URL、要約スニペット）
-                  """
-                  try:
-                      with DDGS() as ddgs:
-                          try:
-                              results = list(ddgs.text(query, region=region, max_results=count))
-                          except Exception:
-                              results = []
-                          if not results:
-                              results = list(ddgs.text(query, max_results=count))
-                          if not results:
-                              return f"「{query}」に関する検索結果は見つかりませんでした。"
-                          
-                          output = []
-                          for i, r in enumerate(results, 1):
-                              title = r.get("title", "")
-                              url = r.get("href", "")
-                              body = r.get("body", "")
-                              output.append(f"[{i}] {title}\\nURL: {url}\\n要約: {body}\\n")
-                          return "\\n".join(output)
-                  except Exception as e:
-                      return f"検索エラー: {str(e)}"
-          '''
-          async def register_tool():
+          async def sync_custom_plugins():
               users_data = await Users.get_users()
               users_list = users_data.get("users", []) if isinstance(users_data, dict) else users_data
               admin_id = None
@@ -205,33 +192,82 @@
               if not admin_id and users_list:
                   admin_id = getattr(users_list[0], "id", None) or (users_list[0].get("id") if isinstance(users_list[0], dict) else None)
 
-              module, _ = await load_tool_module_by_id(TOOL_ID, content=TOOL_CONTENT)
-              specs = get_tool_specs(module)
+              # 1. Sync Functions (Filters and Pipes)
+              fn_files = glob.glob("/app/backend/data/custom_functions/*.py")
+              for fpath in sorted(fn_files):
+                  fid = os.path.splitext(os.path.basename(fpath))[0]
+                  with open(fpath, "r", encoding="utf-8") as f:
+                      content = f.read()
 
-              existing = await Tools.get_tool_by_id(TOOL_ID)
-              form = ToolForm(
-                  id=TOOL_ID,
-                  name=TOOL_NAME,
-                  content=TOOL_CONTENT,
-                  meta=ToolMeta(description=TOOL_DESC),
-                  access_grants=[]
-              )
-              if existing:
-                  update_dict = {
-                      "name": TOOL_NAME,
-                      "content": TOOL_CONTENT,
-                      "specs": specs,
-                      "meta": {"description": TOOL_DESC}
-                  }
-                  await Tools.update_tool_by_id(TOOL_ID, update_dict)
-                  print("Updated web_search tool successfully")
-              elif admin_id:
-                  await Tools.insert_new_tool(admin_id, form, specs=specs)
-                  print("Created web_search tool successfully")
+                  title, desc = parse_metadata(content)
+                  name = title or fid.replace("_", " ").title()
+                  ftype = "pipe" if "class Pipe" in content else "filter"
 
-              # Configure default model with toolIds
+                  existing = await Functions.get_function_by_id(fid)
+                  form = FunctionForm(
+                      id=fid,
+                      name=name,
+                      content=content,
+                      meta=FunctionMeta(description=desc)
+                  )
+                  if existing:
+                      await Functions.update_function_by_id(fid, {
+                          "name": name,
+                          "content": content,
+                          "meta": {"description": desc},
+                          "is_active": True,
+                          "is_global": True
+                      })
+                      print(f"Updated function: {fid} ({name}) [{ftype}]")
+                  elif admin_id:
+                      await Functions.insert_new_function(admin_id, ftype, form)
+                      await Functions.update_function_by_id(fid, {
+                          "is_active": True,
+                          "is_global": True
+                      })
+                      print(f"Inserted function: {fid} ({name}) [{ftype}]")
+
+              # 2. Sync Tools
+              tool_files = glob.glob("/app/backend/data/custom_tools/*.py")
+              all_tool_ids = []
+              for tpath in sorted(tool_files):
+                  tid = os.path.splitext(os.path.basename(tpath))[0]
+                  all_tool_ids.append(tid)
+                  with open(tpath, "r", encoding="utf-8") as f:
+                      content = f.read()
+
+                  title, desc = parse_metadata(content)
+                  name = title or tid.replace("_", " ").title()
+
+                  try:
+                      module, _ = await load_tool_module_by_id(tid, content=content)
+                      specs = get_tool_specs(module)
+                  except Exception as e:
+                      print(f"Error loading specs for tool {tid}: {e}")
+                      specs = []
+
+                  existing = await Tools.get_tool_by_id(tid)
+                  form = ToolForm(
+                      id=tid,
+                      name=name,
+                      content=content,
+                      meta=ToolMeta(description=desc),
+                      access_grants=[]
+                  )
+                  if existing:
+                      await Tools.update_tool_by_id(tid, {
+                          "name": name,
+                          "content": content,
+                          "specs": specs,
+                          "meta": {"description": desc}
+                      })
+                      print(f"Updated tool: {tid} ({name})")
+                  elif admin_id:
+                      await Tools.insert_new_tool(admin_id, form, specs=specs)
+                      print(f"Inserted tool: {tid} ({name})")
+
+              # 3. Configure default models with toolIds
               try:
-                  from open_webui.models.models import Models, ModelForm, ModelMeta, ModelParams
                   default_model = await Config.get("ui.default_models")
                   if default_model:
                       for mid in default_model.split(","):
@@ -242,9 +278,9 @@
                                   base_model_id=None,
                                   name=mid,
                                   meta=ModelMeta(
-                                      description=f"{mid} with Web Search capabilities",
+                                      description=f"{mid} with Tools capabilities",
                                       capabilities={"tools": True, "web_search": True},
-                                      toolIds=["web_search"]
+                                      toolIds=all_tool_ids
                                   ),
                                   params=ModelParams(),
                                   access_grants=[],
@@ -255,13 +291,13 @@
                                   await Models.update_model_by_id(mid, mform)
                               elif admin_id:
                                   await Models.insert_new_model(mform, admin_id)
-                              print(f"Configured model {mid} with default toolIds: ['web_search']")
+                              print(f"Configured model {mid} with default toolIds: {all_tool_ids}")
               except Exception as e:
                   print(f"Warning: Failed to configure default model with toolIds: {e}")
 
-          asyncio.run(register_tool())
+          asyncio.run(sync_custom_plugins())
       except Exception as e:
-          print(f"Warning: Failed to register web_search tool: {e}")
+          print(f"Warning: Failed to register functions and tools: {e}")
 
       # Patch frontend to enable Web Search (globe icon) by default
       try:
