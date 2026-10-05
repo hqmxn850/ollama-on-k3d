@@ -151,9 +151,20 @@
       gdrive_api_key = sys.argv[10] if len(sys.argv) > 10 else ""
       system_prompt = sys.argv[11] if len(sys.argv) > 11 else ""
 
+      prompt_suggestions_ja = [
+          {"title": ["学習をサポート", "語彙力や資格試験の勉強"], "content": "語彙力向上のための練習をしたいです。文脈に合った単語を選ぶ穴埋め問題を1問出題してください。"},
+          {"title": ["アイデア出し", "創造的な活用法や企画"], "content": "新しいプロジェクトや活動を始めるための創造的なアイデアを5つ提案してください。"},
+          {"title": ["面白い豆知識", "歴史や科学の興味深い雑学"], "content": "あまり知られていない興味深く面白い歴史や科学の豆知識を1つ教えてください。"},
+          {"title": ["コード例を作成", "実用的なプログラミングサンプル"], "content": "実用的で分かりやすいプログラミングのサンプルコード（実装例と解説付き）を提示してください。"},
+          {"title": ["分かりやすく解説", "専門用語や仕組みの基本"], "content": "複雑な技術やビジネスの仕組みについて、初心者にも理解できるよう簡潔かつ論理的に解説してください。"},
+          {"title": ["タスク改善・アドバイス", "日々の効率化や改善案"], "content": "作業の生産性を向上させ、効率よく進めるための具体的なアドバイスや手順を教えてください。"}
+      ]
+
       asyncio.run(Config.upsert({
           "ui.default_locale": locale,
           "ui.default_interface_settings": {"locale": locale, "webSearch": "always"},
+          "ui.prompt_suggestions": prompt_suggestions_ja,
+          "ui.prompt_suggestions_i18n": {"ja": prompt_suggestions_ja, "ja-JP": prompt_suggestions_ja},
           "web.search.enable": (web_search_enabled.lower() == "true"),
           "web.search.engine": web_search_engine,
           "web.search.result_count": web_search_count,
@@ -272,6 +283,43 @@
                   print(f"Patched frontend locale enforcement in {os.path.basename(f)}")
       except Exception as e:
           print(f"Warning: Failed to patch frontend locale: {e}")
+
+      try:
+          import glob
+          suggestions_translations = {
+              'Help me study': '学習をサポート',
+              'vocabulary for a college entrance exam': '語彙力や資格試験の勉強',
+              'Help me study vocabulary: write a sentence for me to fill in the blank, and I\'ll try to pick the correct option.': '語彙力向上のための練習をしたいです。文脈に合った単語を選ぶ穴埋め問題を1問出題してください。',
+              'Give me ideas': 'アイデアを出す',
+              'for what to do with my kids\' art': '子どもの工作や作品の活用法',
+              'What are 5 creative things I could do with my kids\' art? I don\'t want to throw them away, but it\'s also so much clutter.': '子どもの作品を活用するクリエイティブなアイデアを5つ提案してください。捨てるのは避けたいですが、場所を取って困っています。',
+              'Tell me a fun fact': '面白い豆知識',
+              'about the Roman Empire': '古代ローマ帝国について',
+              'Tell me a random fun fact about the Roman Empire': '古代ローマ帝国に関する、あまり知られていない興味深く面白い豆知識を1つ教えてください。',
+              'Show me a code snippet': 'コードスニペットを表示',
+              'of a website\'s sticky header': 'Webサイトの固定ヘッダー',
+              'Show me a code snippet of a website\'s sticky header in CSS and JavaScript.': 'CSSとJavaScriptを使用したWebサイトの固定ヘッダー（Sticky Header）の実装コード例を提示してください。',
+              'Explain options trading': 'オプション取引を解説',
+              'if I\'m familiar with buying and selling stocks': '株式投資の経験者向けに',
+              'Explain options trading in simple terms if I\'m familiar with buying and selling stocks.': '株式の現物売買の経験がある人向けに、オプション取引の基本概念と仕組みを分かりやすく簡潔に解説してください。',
+              'Overcome procrastination': '先延ばし癖を克服',
+              'give me tips': 'アドバイスを提示',
+              'Could you start by asking me about instances when I procrastinate the most and then give me some suggestions to overcome it?': '私がどのような時に先延ばしにしがちか質問して、その上で克服するための具体的なアドバイスを提案してください。'
+          }
+          for f in glob.glob('/app/build/_app/immutable/chunks/*.js'):
+              with open(f, 'r', encoding='utf-8') as fp:
+                  c = fp.read()
+              if '"Help me study":""' in c:
+                  for k, v in suggestions_translations.items():
+                      target = f'"{k}":""'
+                      repl = f'"{k}":{json.dumps(v, ensure_ascii=False)}'
+                      if target in c:
+                          c = c.replace(target, repl)
+                  with open(f, 'w', encoding='utf-8') as fp:
+                      fp.write(c)
+                  print(f"Patched Japanese prompt suggestions in {os.path.basename(f)}")
+      except Exception as e:
+          print(f"Warning: Failed to patch prompt suggestions: {e}")
 
 
       try:
