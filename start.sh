@@ -686,8 +686,14 @@ if [[ "$CHECK_MODE" == false && "${NPU_FLM_ENABLED:-true}" == true ]]; then
       log "FastFlowLM API サーバーをポート ${FLM_PORT} で起動中..."
       PID_FILE="/tmp/flm_serve_${ACTUAL_USER}.pid"
       LOG_FILE="/tmp/flm_serve_${ACTUAL_USER}.log"
-      nohup "${FLM_CMD[@]}" serve "${FLM_MODEL}" --host "${FLM_BIND_HOST}" --port "${FLM_PORT}" > "${LOG_FILE}" 2>&1 &
-      echo $! > "${PID_FILE}"
+      if command -v setsid >/dev/null 2>&1; then
+        setsid "${FLM_CMD[@]}" serve "${FLM_MODEL}" --host "${FLM_BIND_HOST}" --port "${FLM_PORT}" > "${LOG_FILE}" 2>&1 < /dev/null &
+      else
+        nohup "${FLM_CMD[@]}" serve "${FLM_MODEL}" --host "${FLM_BIND_HOST}" --port "${FLM_PORT}" > "${LOG_FILE}" 2>&1 < /dev/null &
+      fi
+      FLM_PID=$!
+      disown $FLM_PID 2>/dev/null || true
+      echo $FLM_PID > "${PID_FILE}"
 
       FLM_STARTED=false
       for _i in $(seq 1 "${FLM_RETRIES}"); do
