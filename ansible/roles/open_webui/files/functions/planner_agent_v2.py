@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 class Pipe:
     class Valves(BaseModel):
-        ollama_url: str = Field(default="http://ollama.ollama.svc.cluster.local:11434", description="Ollama API URL")
-        default_model: str = Field(default="FieldMouse-AI/qwen3.8:27B", description="計画および実行に利用する LLM モデル")
+        ollama_url: str = Field(default="http://lemonade.lemonade.svc.cluster.local:11434", description="Lemonade (Ollama 互換 API) URL")
+        default_model: str = Field(default="Qwen3.8-27B-GGUF", description="計画および実行に利用する LLM モデル")
         max_steps: int = Field(default=4, description="タスク分解の最大ステップ数")
 
     def __init__(self):

@@ -4,7 +4,7 @@
 # 高速並行パイプライン:
 #   Stage 1: 独立ミドルウェアの先行マニフェスト一括投入 (Launch)
 #            Serverノード: Rancher (CORE), kube-prometheus-stack (Monitoring)
-#            Workerノード: AMD GPU / NPU, Ollama, OGA, Open WebUI (AI)
+#            Workerノード: AMD GPU / NPU, Lemonade (GPU LLM), Open WebUI (AI)
 #   Stage 2: 各ミドルウェアの並行収束待機 & 事後構成 (Converge)
 # ==========================================================
 - name: "[Phase 3] アプリケーション・AI・監視基盤プロビジョニング (先行投入・並行収束パイプライン)"
@@ -14,7 +14,7 @@
     # --------------------------------------------------------
     # Stage 1: 先行マニフェスト一括投入 (Launch)
     # --------------------------------------------------------
-    - name: "[Stage 1-1/6] [Server] cert-manager & Rancher マニフェスト先行投入"
+    - name: "[Stage 1-1/5] [Server] cert-manager & Rancher マニフェスト先行投入"
       ansible.builtin.include_role:
         name: rancher
         tasks_from: launch.yml
@@ -26,7 +26,7 @@
         - apps
         - rancher
 
-    - name: "[Stage 1-2/6] [Server] kube-prometheus-stack マニフェスト先行投入"
+    - name: "[Stage 1-2/5] [Server] kube-prometheus-stack マニフェスト先行投入"
       ansible.builtin.include_role:
         name: monitoring
         tasks_from: launch.yml
@@ -38,7 +38,7 @@
         - apps
         - monitoring
 
-    - name: "[Stage 1-3/6] [Worker] AMD GPU / NPU Device Plugin デプロイ"
+    - name: "[Stage 1-3/5] [Worker] AMD GPU / NPU Device Plugin デプロイ"
       ansible.builtin.include_role:
         name: amd_gpu
         apply:
@@ -52,39 +52,23 @@
         - amd_gpu
         - gpu
 
-    - name: "[Stage 1-4/6] [Worker] Ollama LLM サービス デプロイ"
+    - name: "[Stage 1-4/5] [Worker] Lemonade Server (GPU LLM / Ollama 互換 API) デプロイ"
       ansible.builtin.include_role:
-        name: ollama
+        name: lemonade
         apply:
           tags:
             - apps
-            - ollama
+            - lemonade
             - llm
             - ai
-      when: ollama_enabled | default(true) | bool
+      when: lemonade_enabled | default(true) | bool
       tags:
         - apps
-        - ollama
+        - lemonade
         - llm
         - ai
 
-    - name: "[Stage 1-5/6] [Worker] OnnxRuntime GenAI (OGA) サービス デプロイ"
-      ansible.builtin.include_role:
-        name: oga
-        apply:
-          tags:
-            - apps
-            - oga
-            - llm
-            - ai
-      when: oga_enabled | default(true) | bool
-      tags:
-        - apps
-        - oga
-        - llm
-        - ai
-
-    - name: "[Stage 1-6/6] [Worker] Open WebUI (Local AI Web チャット基盤) デプロイ"
+    - name: "[Stage 1-5/5] [Worker] Open WebUI (Local AI Web チャット基盤) デプロイ"
       ansible.builtin.include_role:
         name: open_webui
         apply:

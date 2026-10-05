@@ -7,7 +7,7 @@
   - 全て `config.env` および `ansible/group_vars/all.yml` を Single Source of Truth (信頼できる唯一の情報源) として一元管理・変数化し、テンプレート内では `{{ 変数名 | default(...) }}` 形式で参照すること。
 - **ワークロード配置ルールの厳守**:
   - **Server ノード (8 コア: 0-7)**: CORE 機能 (Traefik, Rancher, cert-manager)、モニタリング機能 (Prometheus, Grafana)、SSO 機能 (Keycloak, pgAdmin, PostgreSQL) を配置。(`nodeSelector: node-role.kubernetes.io/control-plane: "true"`)
-  - **Worker ノード (24 コア: 8-31)**: AI / LLM 機能 (Ollama, OGA, Open WebUI, AMD GPU/NPU device plugin) を集中配置。(`nodeSelector: node-role.kubernetes.io/worker: "true"`)
+  - **Worker ノード (24 コア: 8-31)**: AI / LLM 機能 (Lemonade, FastFlowLM, Open WebUI, AMD GPU/NPU device plugin) を集中配置。(`nodeSelector: node-role.kubernetes.io/worker: "true"`)
 - **ストレージクラス**: K3s 標準の `local-path` を全面使用。
 
 ---
@@ -45,8 +45,8 @@
 ├── trust-ca.sh              # K3D ルート CA 証明書のホスト OS 自動信頼登録 / 削除スクリプト
 ├── upgrade.sh               # 最新版検索 & 自動アップグレードスクリプト (K8s, Helm, イメージ)
 ├── import-images.sh         # Podman ローカルキャッシュからクラスタ全ノード containerd への一括事前インポートスクリプト
-├── ollama-pull.sh           # Kubernetes 上の Ollama モデル pull スクリプト
-├── pull-model.sh            # Ollama モデル pull スクリプト (ollama-pull.sh へのリンク)
+├── lemonade-pull.sh         # Kubernetes 上の Lemonade モデル pull スクリプト
+├── pull-model.sh            # Lemonade モデル pull スクリプト (lemonade-pull.sh へのリンク)
 ├── config.env               # クラスタ設定変数ファイル (Single Source of Truth)
 ├── versions.env             # バージョン情報ファイル (K3s/Helm/イメージ最新保証)
 ├── config.yaml              # K3D 設定ファイル (start.sh 実行時に自動生成)
@@ -66,7 +66,7 @@
 │   ├── group_vars/          # クラスタ設定変数 (all.yml)
 │   ├── playbooks/           # site.yml, cluster.yml, storage_auth.yml, apps.yml, oidc.yml, teardown.yml
 │   ├── shared/              # 共通タスク (helm_repo.yml: Helm リポジトリ冪等登録)
-│   └── roles/               # 各機能 Role (host_setup, k3d_cluster, keycloak, rancher, monitoring, oidc_integration, amd_gpu, ollama, oga, open_webui, cluster_teardown)
+│   └── roles/               # 各機能 Role (host_setup, k3d_cluster, keycloak, rancher, monitoring, oidc_integration, amd_gpu, lemonade, open_webui, cluster_teardown)
 ├── AGENTS.md                # 運用・開発エージェント向け指示書
 ├── README.md                # プロジェクト概要・利用手順
 ├── NETWORK.md               # ネットワーク構成仕様書
@@ -96,19 +96,26 @@
 | `K3D_GPUS` | k3d ノードへの GPU パススルー | `all` |
 | `EMAIL_DOMAIN` | メールドメイン | `philippines.com.ph` |
 | `ADMIN_GROUP_NAME` | 管理者グループ名 (Keycloak / Grafana / Open WebUI) | `rancher-admins` |
-| `OLLAMA_ENABLED` | Ollama LLM サービスのデプロイ有効化 | `true` |
-| `OLLAMA_HOSTNAME` | Ollama API ホスト名 | `ollama.${EMAIL_DOMAIN}` |
-| `OLLAMA_PORT` | Ollama API 待受ポート | `11434` |
-| `OLLAMA_STORAGE_SIZE` | Ollama モデル保存用 PVC 容量 | `30Gi` |
-| `OLLAMA_STORAGE_CLASS` | Ollama モデル保存用 StorageClass | `local-path` |
-| `OLLAMA_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `FieldMouse-AI/qwen3.8:27B` |
-| `OLLAMA_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
-| `OLLAMA_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Ollama 接続リトライ回数 | `30` |
-| `OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
-| `OLLAMA_NUM_CTX` | Ollama LLM コンテキスト長 (トークン数) | `32768` |
-| `OGA_ENABLED` | OnnxRuntime GenAI サービスのデプロイ有効化 | `true` |
-| `OGA_HOSTNAME` | OGA API ホスト名 | `oga.${EMAIL_DOMAIN}` |
-| `OGA_PORT` | OGA 待受ポート | `8000` |
+| `LEMONADE_ENABLED` | Lemonade Server (GPU LLM / Ollama 互換 API) のデプロイ有効化 | `true` |
+| `LEMONADE_NAMESPACE` | Lemonade の名前空間 | `lemonade` |
+| `LEMONADE_HOSTNAME` | Lemonade API ホスト名 | `lemonade.${EMAIL_DOMAIN}` |
+| `LEMONADE_PORT` | Lemonade API 待受ポート (Ollama 互換) | `11434` |
+| `LEMONADE_REPLICAS` | Lemonade Replica 数 | `1` |
+| `LEMONADE_BACKEND` | 推論バックエンド (llama.cpp) | `rocm` |
+| `LEMONADE_GPU_ENABLED` | AMD GPU パススルー有効化 | `true` |
+| `LEMONADE_GPU_NUMBER` | 割り当て GPU デバイス数 | `1` |
+| `LEMONADE_STORAGE_SIZE` | モデル保存用 PVC 容量 | `30Gi` |
+| `LEMONADE_STORAGE_CLASS` | モデル保存用 StorageClass | `local-path` |
+| `LEMONADE_CPU_REQUEST` | CPU リクエスト | `500m` |
+| `LEMONADE_MEMORY_REQUEST` | メモリリクエスト | `2Gi` |
+| `LEMONADE_MEMORY_LIMIT` | メモリリミット | `16Gi` |
+| `LEMONADE_PROBE_PATH` | 死活監視パス | `/live` |
+| `LEMONADE_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `Qwen3.8-27B-GGUF` |
+| `LEMONADE_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
+| `LEMONADE_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Lemonade 接続リトライ回数 | `30` |
+| `LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
+| `LEMONADE_PULL_RETRIES` | モデル pull の最大リトライ回数 (部分再開) | `10` |
+| `LEMONADE_PULL_RETRY_INTERVAL` | モデル pull のリトライ間隔 (秒) | `10` |
 | `OPEN_WEBUI_ENABLED` | Open WebUI のデプロイ有効化 | `true` |
 | `OPEN_WEBUI_NAMESPACE` | Open WebUI の名前空間 | `open-webui` |
 | `OPEN_WEBUI_HOSTNAME` | Open WebUI ホスト名 | `chat.${EMAIL_DOMAIN}` |
@@ -142,8 +149,6 @@
 | `NPU_FLM_STARTUP_RETRIES` | FastFlowLM 起動待機リトライ回数 | `15` |
 | `NPU_FLM_STARTUP_RETRY_INTERVAL` | FastFlowLM 起動待機リトライ間隔 (秒) | `1` |
 | `NPU_FLM_KERNEL_DIR` | FastFlowLM NPU カーネル配置ディレクトリ | `/opt/fastflowlm/lib` |
-| `NPU_FLM_CLIENT_TIMEOUT` | OGA Gateway から FastFlowLM へのクライアントタイムアウト (秒) | `300.0` |
-| `NPU_FLM_HEALTH_TIMEOUT` | OGA Gateway から FastFlowLM へのヘルスチェックタイムアウト (秒) | `3.0` |
 
 ---
 
@@ -157,15 +162,15 @@
    - Worker ノードには `tier=ai, role=worker, node-role.kubernetes.io/worker=true` を付与。
    - 各 Helm values / Deployment において `nodeSelector` を設定し、意図せぬノード間混在を防止する。
 3. **モデル管理**:
-   - `./ollama-pull.sh pull <モデル名>` により、稼働中の Ollama Pod 内へ直接モデルをダウンロード・永続化可能。
-   - `start.sh` はデプロイ末尾 (セクション 11) で `OLLAMA_DEFAULT_MODEL` が Ollama に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`OLLAMA_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。
+   - `./lemonade-pull.sh pull <モデル名>` により、稼働中の Lemonade Pod 内へ直接モデルをダウンロード・永続化可能 (`--list` で一覧、`rm` で削除)。
+   - `start.sh` はデプロイ末尾 (セクション 11) で `LEMONADE_DEFAULT_MODEL` が Lemonade に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`LEMONADE_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。
 4. **UI 日本語化**:
    - Open WebUI は `DEFAULT_LOCALE` / `DEFAULT_INTERFACE_SETTINGS` 環境変数、`loader.js` によるフロントエンドロケール自動設定、および DB 内の `ui.default_locale` / `ui.default_interface_settings` / 既存ユーザー設定同期により、新規アクセス時および全ユーザーにおいて `OPEN_WEBUI_DEFAULT_LOCALE` (デフォルト: `ja-JP`) で統一される。
 5. **AMD XDNA NPU (FastFlowLM) 連携 & Turbo モード**:
-   - AMD XDNA NPU (Strix Halo / Ryzen AI) を用いた高速推論はホスト上の `fastflowlm` (`flm serve`) により提供され、Kubernetes クラスタ内の OGA (OnnxRuntime GenAI) サービスが OpenAI 互換リバースプロキシ兼 Prometheus Exporter として中継する。
+   - AMD XDNA NPU (Strix Halo / Ryzen AI) を用いた高速推論はホスト上の `fastflowlm` (`flm serve`) により提供され、Open WebUI が `OPENAI_API_BASE_URLS` によりホスト上の FastFlowLM (`http://${NPU_FLM_HOST_IP}:${NPU_FLM_PORT}/v1`) を OpenAI 互換バックエンドとして直接参照する。
    - `start.sh` 実行時に `AMD_NPU_POWER_MODE` (デフォルト: `TURBO` / `4`) に基づき `lib/npu-power-mode.py` により NPU デバイスのクロックおよびパワープロファイルが自動設定され、最大周波数 (例: MP-NPU 1267MHz, H-Clock 1800MHz) で動作する。
    - `flm` カーネルバイナリ確認、`NPU_FLM_DEFAULT_MODEL` (例: `gemma4-it:e4b`) の pull、`flm serve` API サーバーの自動バックグラウンド起動が行われ、`stop.sh` 実行時に安全に終了される。
-   - Open WebUI からは OGA サービス (`http://oga.oga.svc.cluster.local:8000/v1`) 経由でモデル一覧に表示され、選択するだけで 100+ tokens/sec の NPU ハードウェア推論が実行される。推論実行時は Prometheus の `amd_npu_command_submissions_total`, `amd_npu_power_mode`, `oga_requests_total` に即座に反映される。
+   - Open WebUI からは FastFlowLM (`http://${NPU_FLM_HOST_IP}:${NPU_FLM_PORT}/v1`) としてモデル一覧に表示され、選択するだけで 100+ tokens/sec の NPU ハードウェア推論が実行される。推論実行時は Prometheus の `amd_npu_command_submissions_total`, `amd_npu_power_mode` に即座に反映される。
 6. **Web 検索機能とツール (Tool Calling)**:
    - Open WebUI には DuckDuckGo を用いたインターネット Web 検索機能が統合されており、2 つの方法でリアルタイム検索・回答が可能：
      1. **RAG 検索 (地球儀アイコン 🌐)**: チャット入力欄の地球儀アイコンをクリックして ON にすると、最新の検索結果をコンテキストとして自動取得しプロンプトに注入する。

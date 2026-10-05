@@ -6,17 +6,6 @@
   register: cli_tools_setup
   changed_when: "'更新しました' in cli_tools_setup.stdout"
 
-- name: ホスト上に OnnxRuntime GenAI (OGA) の存在確認・インストールを保証
-  ansible.builtin.shell: |
-    if ! python3 -c "import onnxruntime_genai" 2>/dev/null; then
-      python3 -m pip install onnxruntime-genai
-    fi
-  register: host_oga_install
-  changed_when: "'Successfully installed' in host_oga_install.stdout"
-  when: oga_enabled | default(true) | bool
-  failed_when: false
-
-
 - name: 前提ツールの存在確認 (podman, k3d, kubectl, helm)
   ansible.builtin.command: "which {{ item }}"
   loop:

@@ -1,7 +1,7 @@
 # Ollama on K3D デプロイメント仕様書 (spec.md)
 
 ## 概要
-本プロジェクトは、Podman 環境上にローカル AI / LLM ワークロード（Ollama, Open WebUI, OGA）に特化した K3D Kubernetes クラスタ（クラスタ名: `ollama-cluster`）を自動デプロイするための自動化基盤です。
+本プロジェクトは、Podman 環境上にローカル AI / LLM ワークロード（Lemonade, FastFlowLM, Open WebUI）に特化した K3D Kubernetes クラスタ（クラスタ名: `ollama-cluster`）を自動デプロイするための自動化基盤です。
 
 **本プロジェクトのデプロイメントは、Shell スクリプト（start.sh）および Ansible Playbook により自動化する。**
 
@@ -9,7 +9,7 @@
 - **構成管理**: `config.env`（Shell 向け）および `ansible/group_vars/all.yml`（Ansible 向け）でクラスタ設定を一元定義（Single Source of Truth）。
 - **ホスト CPU コアの最適分離**:
   - ホストの 32 コア (AMD Ryzen AI Max+ 395 等) を **Server ノード (8 コア: 0-7)** と **Worker ノード (24 コア: 8-31)** に厳密に分離・割当。
-  - Server ノードには CORE・SSO・監視基盤を集約し、Worker ノードに AI/LLM ワークロード（Ollama, OGA, Open WebUI）を集中配置。
+  - Server ノードには CORE・SSO・監視基盤を集約し、Worker ノードに AI/LLM ワークロード（Lemonade, FastFlowLM, Open WebUI）を集中配置。
 - **ハードウェアアクセラレーション対応**:
   - AMD GPU (ROCm: `/dev/kfd`, `/dev/dri`) および AMD NPU (XDNA: `/dev/accel`) をノードコンテナへパススルーし、K8s Device Plugin により透過的に提供。
   - AMD XDNA NPU の Turbo モード (最大クロック・パフォーマンス) を自動検出・有効化。
@@ -48,9 +48,8 @@
 | Grafana Web ポート | `GRAFANA_PORT` | `3000` | Grafana Web UI 待受ポート |
 | Prometheus ポート | `PROMETHEUS_PORT` | `9090` | Prometheus 待受ポート |
 | Alertmanager ポート | `ALERTMANAGER_PORT` | `9093` | Alertmanager 待受ポート |
-| Ollama API ポート | `OLLAMA_PORT` | `11434` | Ollama LLM API 待受ポート |
-| Ollama Exporter ポート | `OLLAMA_EXPORTER_PORT` | `9115` | Ollama Prometheus Exporter 待受ポート |
-| OGA API ポート | `OGA_PORT` | `8000` | OnnxRuntime GenAI API 待受ポート |
+| Lemonade API ポート | `LEMONADE_PORT` | `11434` | Lemonade (Ollama 互換) LLM API 待受ポート |
+| FastFlowLM API ポート | `NPU_FLM_PORT` | `52625` | FastFlowLM (OpenAI 互換) NPU API ホスト待受ポート |
 | Open WebUI ポート | `OPEN_WEBUI_PORT` | `8080` | Open WebUI Web チャット待受ポート |
 | pgAdmin 4 ポート | `PGADMIN_PORT` | `80` | pgAdmin 4 Web コンソール待受ポート |
 
@@ -76,20 +75,15 @@ KUBELET_USER_NAMESPACE=true
 PRE_IMPORT_IMAGES=true
 K3D_GPUS="all"
 
-# AI ワークロード設定
-OLLAMA_ENABLED=true
-OLLAMA_PORT=11434
-OLLAMA_STORAGE_SIZE="30Gi"
-OLLAMA_STORAGE_CLASS="local-path"
-OLLAMA_DEFAULT_MODEL="FieldMouse-AI/qwen3.8:27B"
-OLLAMA_DEFAULT_MODEL_AUTO_SETUP=true
-OLLAMA_DEFAULT_MODEL_SETUP_RETRIES=30
-OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL=2
-
-OGA_ENABLED=true
-OGA_PORT=8000
-OGA_STORAGE_SIZE="30Gi"
-OGA_STORAGE_CLASS="local-path"
+# AI ワークロード設定 (Lemonade / GPU LLM)
+LEMONADE_ENABLED=true
+LEMONADE_PORT=11434
+LEMONADE_STORAGE_SIZE="30Gi"
+LEMONADE_STORAGE_CLASS="local-path"
+LEMONADE_DEFAULT_MODEL="Qwen3.8-27B-GGUF"
+LEMONADE_DEFAULT_MODEL_AUTO_SETUP=true
+LEMONADE_DEFAULT_MODEL_SETUP_RETRIES=30
+LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL=2
 
 OPEN_WEBUI_ENABLED=true
 OPEN_WEBUI_NAMESPACE="open-webui"
@@ -114,8 +108,8 @@ OPEN_WEBUI_STORAGE_CLASS="local-path"
 ### 3.2 Worker ノード (24 コア: 8-31) 割当
 - **目的**: 大規模言語モデル (LLM) 推論および Web フロントエンドの実行。CPU 24 コアの集中投入と GPU/NPU ハードウェアアクセラレーション。
 - **配置ワークロード**:
-  - `ollama`: Ollama LLM サーバー (AMD ROCm GPU パススルー), Ollama Exporter
-  - `oga`: OnnxRuntime GenAI サービス (AMD XDNA NPU パススルー)
+  - `lemonade`: Lemonade Server (AMD ROCm GPU パススルー, Ollama 互換 API)
+  - FastFlowLM (ホスト常駐プロセス, AMD XDNA NPU): Open WebUI から `http://<gateway>:52625/v1` で直接参照
   - `open-webui`: Open WebUI フロントエンドチャット UI (local-path PVC 30Gi)
   - `kube-system`: AMD GPU Device Plugin, AMD NPU Device Plugin
 - **nodeSelector**: `node-role.kubernetes.io/worker: "true"`
@@ -135,11 +129,10 @@ OPEN_WEBUI_STORAGE_CLASS="local-path"
 | | | `k3d_cluster` | `config.yaml` 生成、クラスタ起動、kubeconfig 同期、CPU 割当 (`podman update --cpus 8/24`)、ノードラベリング |
 | **Phase 2** | `storage_auth.yml` | `keycloak` | PostgreSQL + Keycloak + pgAdmin 4 デプロイ (Server ノード) |
 | **Phase 3** | `apps.yml` | `rancher` | cert-manager、内部 CA、Rancher デプロイ (Server ノード) |
-| | | `monitoring` | Prometheus, Grafana, Ollama 監視ダッシュボードデプロイ (Server ノード) |
+| | | `monitoring` | Prometheus, Grafana, AI & LLM 監視ダッシュボードデプロイ (Server ノード) |
 | | | `amd_gpu` | AMD GPU / NPU Device Plugin デプロイ (Worker ノード) |
-| | | `ollama` | Ollama LLM サービス, PVC (`local-path`), Exporter デプロイ (Worker ノード) |
-| | | `oga` | OnnxRuntime GenAI サービスデプロイ (Worker ノード) |
-| | | `open_webui` | Open WebUI デプロイ, Ollama 連携, Keycloak SSO 連携 (Worker ノード) |
+| | | `lemonade` | Lemonade Server (GPU LLM / Ollama 互換 API), PVC (`local-path`), Prometheus `/metrics` (Worker ノード) |
+| | | `open_webui` | Open WebUI デプロイ, Lemonade / FastFlowLM 連携, Keycloak SSO 連携 (Worker ノード) |
 | **Phase 4** | `oidc.yml` | `oidc_integration` | Keycloak クライアント・マッパー自動登録 (Open WebUI, Rancher, Grafana, pgAdmin, Traefik)、`secrets.txt` 出力 |
 | **Phase 5** | - | `cluster_teardown` | 一時キャッシュの整理 |
 
@@ -150,8 +143,8 @@ OPEN_WEBUI_STORAGE_CLASS="local-path"
 | サービス名 | 公開 URL | 認証方式 | 初期管理者ユーザー |
 | :--- | :--- | :--- | :--- |
 | **Open WebUI (Local AI)** | `https://chat.philippines.com.ph` | Keycloak OIDC SSO (ワンクリック) | `admin` |
-| **Ollama API** | `https://ollama.philippines.com.ph` | API Direct | - |
-| **OnnxRuntime GenAI (OGA)** | `https://oga.philippines.com.ph` | API Direct | - |
+| **Lemonade API (Ollama 互換)** | `https://lemonade.philippines.com.ph` | API Direct | - |
+| **FastFlowLM (OpenAI 互換)** | `http://10.89.0.1:52625/v1` (ホスト直結・非公開) | 内部 API | - |
 | **Keycloak 管理コンソール** | `https://keycloak.philippines.com.ph/admin` | 管理者認証 | `admin` / `admin` |
 | **pgAdmin 4** | `https://pgadmin.philippines.com.ph` | Keycloak OIDC SSO | `admin@philippines.com.ph` / `admin` |
 | **Grafana** | `https://grafana.philippines.com.ph` | Keycloak OIDC SSO | `admin` / `admin` |

@@ -1,6 +1,6 @@
 # Ollama on K3D - Ansible Playbooks
 
-本ディレクトリは、Ollama on K3D クラスタおよび AI / LLM ワークロード基盤（Ollama, OGA, Open WebUI, AMD ROCm/XDNA Device Plugin, Keycloak, Rancher, Monitoring）を Ansible により宣言的かつ冪等にデプロイするための基盤です。
+本ディレクトリは、Ollama on K3D クラスタおよび AI / LLM ワークロード基盤（Lemonade, FastFlowLM, Open WebUI, AMD ROCm/XDNA Device Plugin, Keycloak, Rancher, Monitoring）を Ansible により宣言的かつ冪等にデプロイするための基盤です。
 
 ## ディレクトリ構成
 
@@ -28,8 +28,7 @@ ansible/
     ├── rancher/             # cert-manager & Rancher Manager (i18n 日本語化)
     ├── monitoring/          # kube-prometheus-stack & Grafana (PostgreSQL データソース & ダッシュボード)
     ├── amd_gpu/             # AMD GPU (ROCm) & AMD NPU (XDNA) Device Plugin
-    ├── ollama/              # Ollama LLM サービス & ollama-exporter
-    ├── oga/                 # OnnxRuntime GenAI (OGA) サービス
+    ├── lemonade/            # Lemonade Server (GPU LLM / Ollama 互換 API) & モデル pull スクリプト
     ├── open_webui/          # Open WebUI (Local AI Web チャット基盤)
     ├── oidc_integration/   # Keycloak クライアント・マッパー登録、OIDC SSO 統合
     └── cluster_teardown/    # クラスタ停止・残存リソース削除・イメージキャッシュ保存
@@ -76,10 +75,10 @@ ansible-playbook playbooks/teardown.yml
   - Keycloak SSO 認証基盤 & pgAdmin 4
 - **Phase 3: アプリケーション・AI・監視基盤プロビジョニング (`apps.yml`)**
   - Rancher (cert-manager & Rancher Manager, UI 完全日本語化)
-  - モニタリング基盤 (Prometheus & Grafana, PostgreSQL / Ollama ダッシュボード自動ロード)
+  - モニタリング基盤 (Prometheus & Grafana, PostgreSQL / AI & LLM ダッシュボード自動ロード)
   - AMD GPU (ROCm) & AMD NPU (XDNA) Device Plugin
-  - Ollama LLM サービス (ローカルモデル推論) & Ollama Prometheus Exporter
-  - OnnxRuntime GenAI (OGA) サービス
+  - Lemonade Server (GPU LLM 推論 / Ollama 互換 API + Prometheus `/metrics`)
+  - FastFlowLM (OpenAI 互換 NPU API / ホスト常駐, Open WebUI から直接参照)
   - Open WebUI (Local AI Web チャット UI)
 - **Phase 4: Keycloak OIDC 統合・認証情報出力 (`oidc.yml`)**
   - Keycloak OIDC クライアント (Open WebUI, Rancher, Grafana, pgAdmin, Traefik) 登録

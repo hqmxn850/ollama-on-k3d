@@ -344,43 +344,22 @@ spec:
   - port: proxy-metrics
     path: /metrics/scheduler
     interval: 30s
-{% if ollama_enabled | default(true) | bool %}
+{% if lemonade_enabled | default(true) | bool %}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: ollama
-  namespace: {{ ollama_namespace | default('ollama') }}
+  name: lemonade
+  namespace: {{ lemonade_namespace | default('lemonade') }}
   labels:
     release: kube-prometheus-stack
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: ollama-exporter
+      app.kubernetes.io/name: lemonade
   namespaceSelector:
     matchNames:
-    - {{ ollama_namespace | default('ollama') }}
-  endpoints:
-  - port: metrics
-    path: /metrics
-    interval: 15s
-{% endif %}
-{% if oga_enabled | default(true) | bool %}
----
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: oga
-  namespace: {{ oga_namespace | default('oga') }}
-  labels:
-    release: kube-prometheus-stack
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/name: oga
-  namespaceSelector:
-    matchNames:
-    - {{ oga_namespace | default('oga') }}
+    - {{ lemonade_namespace | default('lemonade') }}
   endpoints:
   - port: http
     path: /metrics

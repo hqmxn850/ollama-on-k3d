@@ -49,8 +49,8 @@ for script in start.sh stop.sh upgrade.sh trust-ca.sh \
   lib/common.sh \
   ansible/roles/cluster_teardown/files/save-images.sh \
   manifests/rancher-i18n/patch-rancher-i18n.sh \
-  ansible/roles/ollama/files/ollama-pull.sh \
-  ollama-pull.sh \
+  ansible/roles/lemonade/files/lemonade-pull.sh \
+  lemonade-pull.sh \
   pull-model.sh; do
   if [[ -f "$script" ]]; then
     if bash -n "$script" 2>/dev/null; then
@@ -216,41 +216,40 @@ if [[ -f "${PROJECT_ROOT}/trust-ca.sh" ]]; then
   fi
 fi
 
-# ollama-pull.sh: ヘルプおよび引数チェック
-if [[ -f "${PROJECT_ROOT}/ollama-pull.sh" ]]; then
-  OUTPUT_OP_HELP=$("${PROJECT_ROOT}/ollama-pull.sh" --help 2>&1 || true)
-  if echo "$OUTPUT_OP_HELP" | grep -qi "使用方法:\|ollama-pull"; then
-    pass "ollama-pull.sh: ヘルプオプション (--help) 正常出力"
+# lemonade-pull.sh: ヘルプおよび引数チェック
+if [[ -f "${PROJECT_ROOT}/lemonade-pull.sh" ]]; then
+  OUTPUT_LP_HELP=$("${PROJECT_ROOT}/lemonade-pull.sh" --help 2>&1 || true)
+  if echo "$OUTPUT_LP_HELP" | grep -qi "使用方法:\|lemonade-pull"; then
+    pass "lemonade-pull.sh: ヘルプオプション (--help) 正常出力"
   else
-    fail "ollama-pull.sh: ヘルプオプション出力に失敗 (出力: $OUTPUT_OP_HELP)"
+    fail "lemonade-pull.sh: ヘルプオプション出力に失敗 (出力: $OUTPUT_LP_HELP)"
   fi
 
-  OUTPUT_OP_BAD=$("${PROJECT_ROOT}/ollama-pull.sh" --invalid-option 2>&1 || true)
-  if echo "$OUTPUT_OP_BAD" | grep -qi "未知のオプション"; then
-    pass "ollama-pull.sh: 無効オプション指定時のエラーハンドリング"
+  OUTPUT_LP_BAD=$("${PROJECT_ROOT}/lemonade-pull.sh" --invalid-option 2>&1 || true)
+  if echo "$OUTPUT_LP_BAD" | grep -qi "未知のオプション"; then
+    pass "lemonade-pull.sh: 無効オプション指定時のエラーハンドリング"
   else
-    fail "ollama-pull.sh: 無効オプション時のハンドリングに失敗 (出力: $OUTPUT_OP_BAD)"
+    fail "lemonade-pull.sh: 無効オプション時のハンドリングに失敗 (出力: $OUTPUT_LP_BAD)"
   fi
 
-  OUTPUT_OP_NOMODEL=$("${PROJECT_ROOT}/ollama-pull.sh" 2>&1 || true)
-  if echo "$OUTPUT_OP_NOMODEL" | grep -qi "ダウンロードするモデル名が指定されていません"; then
-    pass "ollama-pull.sh: モデル未指定時のエラーハンドリング (pull)"
+  OUTPUT_LP_NOMODEL=$("${PROJECT_ROOT}/lemonade-pull.sh" 2>&1 || true)
+  if echo "$OUTPUT_LP_NOMODEL" | grep -qi "ダウンロードするモデル名が指定されていません"; then
+    pass "lemonade-pull.sh: モデル未指定時のエラーハンドリング (pull)"
   else
-    fail "ollama-pull.sh: モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_OP_NOMODEL)"
+    fail "lemonade-pull.sh: モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_LP_NOMODEL)"
   fi
 
-  OUTPUT_OP_NORM=$("${PROJECT_ROOT}/ollama-pull.sh" rm 2>&1 || true)
-  if echo "$OUTPUT_OP_NORM" | grep -qi "削除するモデル名が指定されていません"; then
-    pass "ollama-pull.sh: モデル未指定時のエラーハンドリング (rm/delete)"
+  OUTPUT_LP_NORM=$("${PROJECT_ROOT}/lemonade-pull.sh" rm 2>&1 || true)
+  if echo "$OUTPUT_LP_NORM" | grep -qi "削除するモデル名が指定されていません"; then
+    pass "lemonade-pull.sh: モデル未指定時のエラーハンドリング (rm/delete)"
   else
-    fail "ollama-pull.sh: rm モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_OP_NORM)"
+    fail "lemonade-pull.sh: rm モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_LP_NORM)"
   fi
 
-  OUTPUT_OP_NOTOOLS=$("${PROJECT_ROOT}/ollama-pull.sh" --enable-tools 2>&1 || true)
-  if echo "$OUTPUT_OP_NOTOOLS" | grep -qi "tools サポートを追加するモデル名が指定されていません"; then
-    pass "ollama-pull.sh: モデル未指定時のエラーハンドリング (--enable-tools)"
+  if [[ -L "${PROJECT_ROOT}/lemonade-pull.sh" && -f "${PROJECT_ROOT}/ansible/roles/lemonade/files/lemonade-pull.sh" ]]; then
+    pass "lemonade-pull.sh: ルート symlink → ansible/roles/lemonade/files/lemonade-pull.sh"
   else
-    fail "ollama-pull.sh: --enable-tools モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_OP_NOTOOLS)"
+    fail "lemonade-pull.sh: ルート symlink またはロール実体が不正"
   fi
 fi
 
@@ -441,10 +440,10 @@ else
   fail "共通タスク: ansible/shared/tasks/helm_repo.yml が見つからない"
 fi
 import_cnt=$(grep -rl "import_tasks: ../../../shared/tasks/helm_repo.yml" ansible/roles/*/tasks/*.yml | wc -l)
-if [[ "${import_cnt}" -eq 6 ]]; then
-  pass "共通タスク導入: 6 ロールが shared/tasks/helm_repo.yml を import"
+if [[ "${import_cnt}" -eq 5 ]]; then
+  pass "共通タスク導入: 5 ロールが shared/tasks/helm_repo.yml を import"
 else
-  fail "共通タスク導入: import ロール数が ${import_cnt} (期待: 6)"
+  fail "共通タスク導入: import ロール数が ${import_cnt} (期待: 5)"
 fi
 
 echo -e "${BOLD}個別テスト結果: ${GREEN}${PASS_COUNT} PASSED${RESET}, ${RED}${FAIL_COUNT} FAILED${RESET}"

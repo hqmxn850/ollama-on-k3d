@@ -3,7 +3,7 @@
 # Open WebUI (Local AI Web チャット基盤) ロール
 #
 # 公式 Helm チャート (open-webui/open-webui) を用いてデプロイし、
-# Ollama / OGA バックエンドおよび Keycloak OIDC 認証と連携した Web UI を提供する。
+# Lemonade (Ollama 互換 API) / FastFlowLM (OpenAI 互換 API) バックエンドおよび Keycloak OIDC 認証と連携した Web UI を提供する。
 # ==============================================================================
 
 - name: Open WebUI 名前空間を作成
@@ -344,7 +344,7 @@
                   c = c.replace('c(Sr,[]),c(Ht,[]),c(hr,[])', f'c(Sr,[]),c(Ht,{get_tool_ids}),c(hr,[])')
                   changed = True
               if 'Xo=async()=>{c(Ht,[]),c(hr,[])' in c:
-                  c = c.replace('Xo=async()=>{c(Ht,[]),c(hr,[])', f'Xo=async()=>{{c(Ht,{get_tool_ids}),c(hr,[])')
+                  c = c.replace('Xo=async()=>{c(Ht,[]),c(hr,[])', 'Xo=async()=>{' + f'c(Ht,{get_tool_ids}),c(hr,[])')
                   changed = True
               if changed:
                   with open(f, 'w', encoding='utf-8') as fp:

@@ -277,7 +277,6 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
     ["prometheus-community"]="${HELM_REPO_PROMETHEUS_COMMUNITY:-https://prometheus-community.github.io/helm-charts}"
     ["rancher-charts"]="${HELM_REPO_RANCHER_CHARTS:-https://charts.rancher.io}"
     ["amd-gpu-helm"]="${HELM_REPO_AMD_GPU_HELM:-https://rocm.github.io/k8s-device-plugin/}"
-    ["ollama-helm"]="${HELM_REPO_OLLAMA_HELM:-https://otwld.github.io/ollama-helm/}"
     ["open-webui"]="${HELM_REPO_OPEN_WEBUI:-https://helm.openwebui.com/}"
   )
 
@@ -313,7 +312,6 @@ if [[ "$K8S_ONLY" == false && "$IMAGES_ONLY" == false ]]; then
     "kube-prometheus-stack|cattle-monitoring-system|prometheus-community/kube-prometheus-stack"
     "rancher-monitoring-dashboards|cattle-monitoring-system|rancher-charts/rancher-monitoring-dashboards"
     "amd-gpu|kube-system|amd-gpu-helm/amd-gpu"
-    "ollama|ollama|ollama-helm/ollama"
     "open-webui|open-webui|open-webui/open-webui"
   )
 
@@ -438,6 +436,7 @@ if [[ "$K8S_ONLY" == false && "$CHARTS_ONLY" == false ]]; then
   DEPLOY_TARGETS=(
     "pgadmin|keycloak|pgadmin"
     "open-webui|open-webui|open-webui"
+    "lemonade|lemonade|lemonade"
   )
 
   for d_target in "${DEPLOY_TARGETS[@]}"; do
@@ -587,7 +586,6 @@ update_versions_file() {
   [[ -n "${DETECTED_CHART_VERSIONS[kube-prometheus-stack]:-}" ]] && sed -i "s|^KUBE_PROMETHEUS_STACK_CHART_VERSION=.*|KUBE_PROMETHEUS_STACK_CHART_VERSION=\"${DETECTED_CHART_VERSIONS[kube-prometheus-stack]}\"|" "$VERSIONS_ENV"
   [[ -n "${DETECTED_CHART_VERSIONS[rancher-monitoring-dashboards]:-}" ]] && sed -i "s|^RANCHER_MONITORING_DASHBOARDS_CHART_VERSION=.*|RANCHER_MONITORING_DASHBOARDS_CHART_VERSION=\"${DETECTED_CHART_VERSIONS[rancher-monitoring-dashboards]}\"|" "$VERSIONS_ENV"
   [[ -n "${DETECTED_CHART_VERSIONS[amd-gpu]:-}" ]] && sed -i "s|^AMD_GPU_CHART_VERSION=.*|AMD_GPU_CHART_VERSION=\"${DETECTED_CHART_VERSIONS[amd-gpu]}\"|" "$VERSIONS_ENV"
-  [[ -n "${DETECTED_CHART_VERSIONS[ollama]:-}" ]] && sed -i "s|^OLLAMA_CHART_VERSION=.*|OLLAMA_CHART_VERSION=\"${DETECTED_CHART_VERSIONS[ollama]}\"|" "$VERSIONS_ENV"
   [[ -n "${DETECTED_CHART_VERSIONS[open-webui]:-}" ]] && sed -i "s|^OPEN_WEBUI_CHART_VERSION=.*|OPEN_WEBUI_CHART_VERSION=\"${DETECTED_CHART_VERSIONS[open-webui]}\"|" "$VERSIONS_ENV"
 
   # config.yaml の K3s イメージ同期

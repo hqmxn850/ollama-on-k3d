@@ -106,8 +106,8 @@ log "イメージ一覧ファイルを更新中: $IMAGES_FILE"
   echo "$ALL_IMAGES" | grep -E "(keycloak|postgresql|postgres-exporter|pgadmin)" || true
   echo ""
 
-  echo "# AI / LLM 基盤 (Ollama / OGA / Open WebUI / AMD GPU-NPU)"
-  echo "$ALL_IMAGES" | grep -E "(ollama|open-webui|generic-device-plugin|k8s-device-plugin|rocm|oga|python:3\.12-slim)" || true
+  echo "# AI / LLM 基盤 (Lemonade / Open WebUI / AMD GPU-NPU)"
+  echo "$ALL_IMAGES" | grep -E "(lemonade|open-webui|generic-device-plugin|k8s-device-plugin|rocm|oga|python:3\.12-slim)" || true
   echo ""
 
   echo "# モニタリング (Prometheus / Grafana)"
@@ -115,7 +115,7 @@ log "イメージ一覧ファイルを更新中: $IMAGES_FILE"
   echo ""
 
   # 上記のいずれにも分類されなかったイメージ
-  OTHER_IMAGES=$(echo "$ALL_IMAGES" | grep -v -E "(busybox|.*mc|.*oauth2-proxy|.*curl|.*os-shell)|^rancher/(klipper-|local-path|mirrored-)|^rancher/(rancher|fleet|shell|turtles|cluster-api|system-upgrade|kuberlr)|(cert-manager)|(keycloak|postgresql|postgres-exporter|pgadmin)|(ollama|open-webui|generic-device-plugin|k8s-device-plugin|rocm|oga|python:3\.12-slim)|(prometheus|grafana|alertmanager|node-exporter|kube-state-metrics|k8s-sidecar)" || true)
+  OTHER_IMAGES=$(echo "$ALL_IMAGES" | grep -v -E "(busybox|.*mc|.*oauth2-proxy|.*curl|.*os-shell)|^rancher/(klipper-|local-path|mirrored-)|^rancher/(rancher|fleet|shell|turtles|cluster-api|system-upgrade|kuberlr)|(cert-manager)|(keycloak|postgresql|postgres-exporter|pgadmin)|(lemonade|open-webui|generic-device-plugin|k8s-device-plugin|rocm|oga|python:3\.12-slim)|(prometheus|grafana|alertmanager|node-exporter|kube-state-metrics|k8s-sidecar)" || true)
   if [[ -n "$OTHER_IMAGES" ]]; then
     echo "# その他"
     echo "$OTHER_IMAGES"

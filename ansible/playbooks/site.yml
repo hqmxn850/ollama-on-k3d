@@ -13,8 +13,8 @@
 - name: "[Phase 2] 認証基盤プロビジョニング (keycloak)"
   ansible.builtin.import_playbook: storage_auth.yml
 
-# Phase 3: Rancher, Monitoring (Server) & AMD GPU, Ollama, OGA, Open WebUI (Worker)
-- name: "[Phase 3] アプリケーション・AI・監視基盤プロビジョニング (rancher / monitoring / amd_gpu / ollama / oga / open_webui)"
+# Phase 3: Rancher, Monitoring (Server) & AMD GPU, Lemonade, Open WebUI (Worker)
+- name: "[Phase 3] アプリケーション・AI・監視基盤プロビジョニング (rancher / monitoring / amd_gpu / lemonade / open_webui)"
   ansible.builtin.import_playbook: apps.yml
 
 # Phase 4: Keycloak OIDC 統合 & 認証情報出力

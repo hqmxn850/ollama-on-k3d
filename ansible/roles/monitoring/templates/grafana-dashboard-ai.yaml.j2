@@ -42,7 +42,7 @@ data:
             "y": 0
           },
           "id": 100,
-          "title": "AI / LLM Service Overview (Ollama & OnnxRuntime GenAI)",
+          "title": "AI / LLM Service Overview (Lemonade & FastFlowLM)",
           "type": "row"
         },
         {
@@ -108,7 +108,7 @@ data:
             },
             "textMode": "auto"
           },
-          "title": "Ollama Status",
+          "title": "Lemonade Status",
           "type": "stat",
           "targets": [
             {
@@ -116,7 +116,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(ollama_up) or vector(0)",
+              "expr": "max(lemonade_server_up) or vector(0)",
               "refId": "A"
             }
           ]
@@ -184,7 +184,7 @@ data:
             },
             "textMode": "auto"
           },
-          "title": "OGA Status",
+          "title": "NPU Exporter Status",
           "type": "stat",
           "targets": [
             {
@@ -192,7 +192,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(oga_up) or vector(0)",
+              "expr": "max(up{service=\"amd-npu-exporter\"}) or vector(0)",
               "refId": "A"
             }
           ]
@@ -239,7 +239,7 @@ data:
             },
             "textMode": "auto"
           },
-          "title": "Ollama Stored Models",
+          "title": "Lemonade Stored Models",
           "type": "stat",
           "targets": [
             {
@@ -247,7 +247,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(ollama_models_total) or vector(0)",
+              "expr": "count(lemonade_model_info) or vector(0)",
               "refId": "A"
             }
           ]
@@ -294,7 +294,7 @@ data:
             },
             "textMode": "auto"
           },
-          "title": "Ollama Loaded Models",
+          "title": "Lemonade Loaded Models",
           "type": "stat",
           "targets": [
             {
@@ -302,7 +302,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(ollama_loaded_models_total) or vector(0)",
+              "expr": "max(lemonade_loaded_models) or vector(0)",
               "refId": "A"
             }
           ]
@@ -349,7 +349,7 @@ data:
             },
             "textMode": "auto"
           },
-          "title": "OGA Stored Models",
+          "title": "NPU Active Contexts",
           "type": "stat",
           "targets": [
             {
@@ -357,7 +357,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(oga_models_total) or vector(0)",
+              "expr": "max(amd_npu_active_contexts{device=\"accel0\"}) or vector(0)",
               "refId": "A"
             }
           ]
@@ -404,7 +404,7 @@ data:
             },
             "textMode": "auto"
           },
-          "title": "OGA Loaded Models",
+          "title": "NPU Power Mode",
           "type": "stat",
           "targets": [
             {
@@ -412,7 +412,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(oga_loaded_models_total) or vector(0)",
+              "expr": "max(amd_npu_power_mode{device=\"accel0\"}) or vector(0)",
               "refId": "A"
             }
           ]
@@ -426,7 +426,7 @@ data:
             "y": 5
           },
           "id": 200,
-          "title": "Ollama Inference & Resource Telemetry",
+          "title": "Lemonade Inference & Resource Telemetry (GPU)",
           "type": "row"
         },
         {
@@ -503,7 +503,7 @@ data:
             },
             "showHeader": true
           },
-          "title": "Ollama Stored Models (Disk Size & Architecture)",
+          "title": "Lemonade Generation Throughput (tokens/sec)",
           "type": "table",
           "transformations": [
             {
@@ -549,7 +549,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "max(ollama_model_size_bytes) by (model, family, parameter_size, quantization)",
+              "expr": "lemonade_model_tokens_per_second",
               "format": "table",
               "instant": true,
               "refId": "A"
@@ -594,7 +594,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "Ollama Pod CPU Usage",
+          "title": "Lemonade Pod CPU Usage",
           "type": "timeseries",
           "targets": [
             {
@@ -602,7 +602,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"ollama\",container=\"ollama\"}[2m])) by (pod) or vector(0)",
+              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"lemonade\",container=\"lemonade\"}[2m])) by (pod) or vector(0)",
               "legendFormat": "{{pod}} (CPU)",
               "refId": "A"
             }
@@ -646,7 +646,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "Ollama Pod Memory Working Set",
+          "title": "Lemonade Pod Memory Working Set",
           "type": "timeseries",
           "targets": [
             {
@@ -654,7 +654,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(container_memory_working_set_bytes{namespace=\"ollama\",container=\"ollama\"}) by (pod) or vector(0)",
+              "expr": "sum(container_memory_working_set_bytes{namespace=\"lemonade\",container=\"lemonade\"}) by (pod) or vector(0)",
               "legendFormat": "{{pod}} (Mem)",
               "refId": "A"
             }
@@ -698,7 +698,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "Ollama Pod Network Throughput (RX / TX)",
+          "title": "Lemonade Pod Network Throughput (RX / TX)",
           "type": "timeseries",
           "targets": [
             {
@@ -706,7 +706,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(container_network_receive_bytes_total{namespace=\"ollama\"}[2m])) by (pod) or vector(0)",
+              "expr": "sum(rate(container_network_receive_bytes_total{namespace=\"lemonade\"}[2m])) by (pod) or vector(0)",
               "legendFormat": "{{pod}} - Received (RX)",
               "refId": "A"
             },
@@ -715,7 +715,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"ollama\"}[2m])) by (pod) or vector(0)",
+              "expr": "sum(rate(container_network_transmit_bytes_total{namespace=\"lemonade\"}[2m])) by (pod) or vector(0)",
               "legendFormat": "{{pod}} - Transmitted (TX)",
               "refId": "B"
             }
@@ -730,7 +730,7 @@ data:
             "y": 18
           },
           "id": 300,
-          "title": "OnnxRuntime GenAI (OGA) Inference & Resource Telemetry",
+          "title": "Lemonade Inference Telemetry & Pod Health",
           "type": "row"
         },
         {
@@ -771,7 +771,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "OGA Inference Request Rate (QPS)",
+          "title": "Lemonade Inference Request Rate (QPS)",
           "type": "timeseries",
           "targets": [
             {
@@ -779,7 +779,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(oga_requests_total[2m])) or vector(0)",
+              "expr": "sum(rate(lemonade_requests_total[2m])) or vector(0)",
               "legendFormat": "Inference Requests (req/s)",
               "refId": "A"
             }
@@ -823,7 +823,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "OGA Token Generation Throughput",
+          "title": "Lemonade Token Generation Throughput",
           "type": "timeseries",
           "targets": [
             {
@@ -831,7 +831,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(oga_generated_tokens_total[2m])) or vector(0)",
+              "expr": "sum(rate(lemonade_output_tokens_total[2m])) or vector(0)",
               "legendFormat": "Tokens Generated (tokens/s)",
               "refId": "A"
             }
@@ -875,7 +875,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "OGA Pod CPU Usage",
+          "title": "Lemonade Pod Restarts",
           "type": "timeseries",
           "targets": [
             {
@@ -883,8 +883,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"oga\",container=\"oga\"}[2m])) by (pod) or vector(0)",
-              "legendFormat": "{{pod}} (CPU)",
+              "expr": "sum(kube_pod_container_status_restarts_total{namespace=\"lemonade\"}) by (pod) or vector(0)",
+              "legendFormat": "{{pod}} (restarts)",
               "refId": "A"
             }
           ]
@@ -927,7 +927,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "OGA Pod Memory Working Set",
+          "title": "Lemonade Pod Ready Replicas",
           "type": "timeseries",
           "targets": [
             {
@@ -935,8 +935,8 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(container_memory_working_set_bytes{namespace=\"oga\",container=\"oga\"}) by (pod) or vector(0)",
-              "legendFormat": "{{pod}} (Mem)",
+              "expr": "sum(kube_pod_status_ready{namespace=\"lemonade\",condition=\"true\"}) by (pod) or vector(0)",
+              "legendFormat": "{{pod}} (ready)",
               "refId": "A"
             }
           ]
@@ -991,7 +991,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "AMD GPU Limits / Allocation (Ollama & OGA)",
+          "title": "AMD GPU Limits / Allocation (Lemonade)",
           "type": "timeseries",
           "targets": [
             {
@@ -999,7 +999,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(kube_pod_container_resource_limits{resource=\"amd_com_gpu\",namespace=~\"ollama|oga\"}) by (pod, namespace) or vector(0)",
+              "expr": "sum(kube_pod_container_resource_limits{resource=\"amd_com_gpu\",namespace=\"lemonade\"}) by (pod, namespace) or vector(0)",
               "legendFormat": "{{namespace}} / {{pod}}",
               "refId": "A"
             }
@@ -1043,7 +1043,7 @@ data:
               "mode": "multi"
             }
           },
-          "title": "Model PVC Storage Consumption (Ollama / OGA)",
+          "title": "Model PVC Storage Consumption (Lemonade)",
           "type": "timeseries",
           "targets": [
             {
@@ -1051,7 +1051,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "kubelet_volume_stats_used_bytes{namespace=~\"ollama|oga\"} or vector(0)",
+              "expr": "kubelet_volume_stats_used_bytes{namespace=\"lemonade\"} or vector(0)",
               "legendFormat": "{{namespace}} / {{persistentvolumeclaim}} - Used",
               "refId": "A"
             },
@@ -1060,7 +1060,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "kubelet_volume_stats_capacity_bytes{namespace=~\"ollama|oga\"} or vector(0)",
+              "expr": "kubelet_volume_stats_capacity_bytes{namespace=\"lemonade\"} or vector(0)",
               "legendFormat": "{{namespace}} / {{persistentvolumeclaim}} - Capacity",
               "refId": "B"
             }
@@ -1473,8 +1473,8 @@ data:
       "tags": [
         "ai",
         "llm",
-        "ollama",
-        "oga",
+        "lemonade",
+        "fastflowlm",
         "gpu",
         "rocm",
         "npu",
@@ -1506,7 +1506,7 @@ data:
         ]
       },
       "timezone": "Asia/Tokyo",
-      "title": "AI / LLM Inference (Ollama & OnnxRuntime GenAI)",
+      "title": "AI / LLM Inference (Lemonade & FastFlowLM)",
       "uid": "ai-llm-inference",
       "version": 1
     }

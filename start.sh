@@ -24,11 +24,11 @@ Ollama on K3D クラスタ自動デプロイメント スクリプト (Ansible �
 このスクリプトは 'config.env' を読み込み、設定値を Ansible 変数に変換して
 Ansible Playbook ('ansible/playbooks/site.yml') を実行します。
 Server 1ノード (8コア: CORE/SSO/監視基盤) と Worker 1ノード (24コア: AI/LLM基盤) の
-2ノード構成で、Ollama, OGA, Open WebUI, Keycloak, Rancher, Grafana を自動デプロイします。
+2ノード構成で、Lemonade (GPU LLM), FastFlowLM (NPU), Open WebUI, Keycloak, Rancher, Grafana を自動デプロイします。
 デプロイ完了後、各コンポーネントの最新バージョン確認を行い、アップグレード可能な場合は対話形式で問い合わせます。
 
 主なオプション例:
-  --tags <TAG>          特定のロール/フェーズのみ実行 (例: --tags ollama, --tags open_webui)
+  --tags <TAG>          特定のロール/フェーズのみ実行 (例: --tags lemonade, --tags open_webui)
   --skip-tags <TAG>     特定のタスクをスキップ
   --check               ドライラン (変更を行わずに実行内容を確認)
   --skip-upgrade-check  デプロイ完了後のアップグレード判定・問い合わせをスキップ
@@ -231,39 +231,33 @@ EXTRA_VARS=$(jq -n \
   --arg amd_npu_device_name "${AMD_NPU_DEVICE_NAME:-npu}" \
   --argjson amd_npu_device_count "${AMD_NPU_DEVICE_COUNT:-1}" \
   --arg amd_npu_power_mode "${AMD_NPU_POWER_MODE:-TURBO}" \
-  --argjson ollama_enabled "${OLLAMA_ENABLED:-true}" \
-  --arg ollama_chart_version "${OLLAMA_CHART_VERSION:-1.84.0}" \
-  --arg ollama_hostname "${OLLAMA_HOSTNAME:-ollama.${EMAIL_DOMAIN}}" \
-  --argjson ollama_port "${OLLAMA_PORT:-11434}" \
-  --argjson ollama_replicas "${OLLAMA_REPLICAS:-1}" \
-  --argjson ollama_gpu_enabled "${OLLAMA_GPU_ENABLED:-true}" \
-  --arg ollama_gpu_type "${OLLAMA_GPU_TYPE:-amd}" \
-  --argjson ollama_gpu_number "${OLLAMA_GPU_NUMBER:-1}" \
-  --arg ollama_storage_size "${OLLAMA_STORAGE_SIZE:-30Gi}" \
-  --argjson ollama_exporter_port "${OLLAMA_EXPORTER_PORT:-9115}" \
-  --arg ollama_probe_path "${OLLAMA_PROBE_PATH:-/api/tags}" \
-  --argjson ollama_liveness_delay_seconds "${OLLAMA_LIVENESS_DELAY_SECONDS:-60}" \
-  --argjson ollama_liveness_timeout_seconds "${OLLAMA_LIVENESS_TIMEOUT_SECONDS:-5}" \
-  --argjson ollama_liveness_failure_threshold "${OLLAMA_LIVENESS_FAILURE_THRESHOLD:-6}" \
-  --argjson ollama_liveness_period_seconds "${OLLAMA_LIVENESS_PERIOD_SECONDS:-15}" \
-  --argjson ollama_readiness_delay_seconds "${OLLAMA_READINESS_DELAY_SECONDS:-30}" \
-  --argjson ollama_readiness_timeout_seconds "${OLLAMA_READINESS_TIMEOUT_SECONDS:-5}" \
-  --argjson ollama_readiness_failure_threshold "${OLLAMA_READINESS_FAILURE_THRESHOLD:-3}" \
-  --argjson ollama_readiness_period_seconds "${OLLAMA_READINESS_PERIOD_SECONDS:-10}" \
-  --argjson oga_enabled "${OGA_ENABLED:-true}" \
-  --arg oga_version "${OGA_VERSION:-0.17.1}" \
-  --arg oga_image "${OGA_IMAGE:-docker.io/library/python:3.12-slim}" \
-  --arg oga_hostname "${OGA_HOSTNAME:-oga.${EMAIL_DOMAIN}}" \
-  --argjson oga_port "${OGA_PORT:-8000}" \
-  --argjson oga_replicas "${OGA_REPLICAS:-1}" \
-  --argjson oga_gpu_enabled "${OGA_GPU_ENABLED:-true}" \
-  --arg oga_gpu_type "${OGA_GPU_TYPE:-amd}" \
-  --argjson oga_gpu_number "${OGA_GPU_NUMBER:-1}" \
-  --arg oga_storage_size "${OGA_STORAGE_SIZE:-30Gi}" \
-  --argjson oga_startup_delay_seconds "${OGA_STARTUP_DELAY_SECONDS:-10}" \
-  --argjson oga_startup_timeout_seconds "${OGA_STARTUP_TIMEOUT_SECONDS:-5}" \
-  --argjson oga_startup_failure_threshold "${OGA_STARTUP_FAILURE_THRESHOLD:-30}" \
-  --argjson oga_startup_period_seconds "${OGA_STARTUP_PERIOD_SECONDS:-10}" \
+  --argjson lemonade_enabled "${LEMONADE_ENABLED:-true}" \
+  --arg lemonade_image "${LEMONADE_IMAGE:-ghcr.io/lemonade-sdk/lemonade-server:v2026.40.0}" \
+  --arg lemonade_namespace "${LEMONADE_NAMESPACE:-lemonade}" \
+  --arg lemonade_hostname "${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN}}" \
+  --argjson lemonade_port "${LEMONADE_PORT:-11434}" \
+  --argjson lemonade_replicas "${LEMONADE_REPLICAS:-1}" \
+  --arg lemonade_backend "${LEMONADE_BACKEND:-rocm}" \
+  --argjson lemonade_gpu_enabled "${LEMONADE_GPU_ENABLED:-true}" \
+  --argjson lemonade_gpu_number "${LEMONADE_GPU_NUMBER:-1}" \
+  --arg lemonade_storage_size "${LEMONADE_STORAGE_SIZE:-30Gi}" \
+  --arg lemonade_storage_class "${LEMONADE_STORAGE_CLASS:-local-path}" \
+  --arg lemonade_cpu_request "${LEMONADE_CPU_REQUEST:-500m}" \
+  --arg lemonade_memory_request "${LEMONADE_MEMORY_REQUEST:-2Gi}" \
+  --arg lemonade_memory_limit "${LEMONADE_MEMORY_LIMIT:-16Gi}" \
+  --arg lemonade_probe_path "${LEMONADE_PROBE_PATH:-/live}" \
+  --argjson lemonade_liveness_delay_seconds "${LEMONADE_LIVENESS_DELAY_SECONDS:-60}" \
+  --argjson lemonade_liveness_timeout_seconds "${LEMONADE_LIVENESS_TIMEOUT_SECONDS:-5}" \
+  --argjson lemonade_liveness_failure_threshold "${LEMONADE_LIVENESS_FAILURE_THRESHOLD:-6}" \
+  --argjson lemonade_liveness_period_seconds "${LEMONADE_LIVENESS_PERIOD_SECONDS:-15}" \
+  --argjson lemonade_readiness_delay_seconds "${LEMONADE_READINESS_DELAY_SECONDS:-30}" \
+  --argjson lemonade_readiness_timeout_seconds "${LEMONADE_READINESS_TIMEOUT_SECONDS:-5}" \
+  --argjson lemonade_readiness_failure_threshold "${LEMONADE_READINESS_FAILURE_THRESHOLD:-3}" \
+  --argjson lemonade_readiness_period_seconds "${LEMONADE_READINESS_PERIOD_SECONDS:-10}" \
+  --arg lemonade_default_model "${LEMONADE_DEFAULT_MODEL:-Qwen3.8-27B-GGUF}" \
+  --argjson lemonade_default_model_auto_setup "${LEMONADE_DEFAULT_MODEL_AUTO_SETUP:-true}" \
+  --argjson lemonade_default_model_setup_retries "${LEMONADE_DEFAULT_MODEL_SETUP_RETRIES:-30}" \
+  --argjson lemonade_default_model_setup_retry_interval "${LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL:-2}" \
   --argjson npu_flm_enabled "${NPU_FLM_ENABLED:-true}" \
   --argjson npu_flm_port "${NPU_FLM_PORT:-52625}" \
   --arg npu_flm_default_model "${NPU_FLM_DEFAULT_MODEL:-gemma4-it:e4b}" \
@@ -274,8 +268,6 @@ EXTRA_VARS=$(jq -n \
   --argjson npu_flm_startup_retries "${NPU_FLM_STARTUP_RETRIES:-15}" \
   --argjson npu_flm_startup_retry_interval "${NPU_FLM_STARTUP_RETRY_INTERVAL:-1}" \
   --arg npu_flm_kernel_dir "${NPU_FLM_KERNEL_DIR:-/opt/fastflowlm/lib}" \
-  --argjson npu_flm_client_timeout "${NPU_FLM_CLIENT_TIMEOUT:-120.0}" \
-  --argjson npu_flm_health_timeout "${NPU_FLM_HEALTH_TIMEOUT:-3.0}" \
   --argjson open_webui_enabled "${OPEN_WEBUI_ENABLED:-true}" \
   --arg open_webui_chart_version "${OPEN_WEBUI_CHART_VERSION:-16.6.0}" \
   --arg open_webui_image_tag "${OPEN_WEBUI_IMAGE_TAG:-v0.11.4}" \
@@ -464,39 +456,33 @@ EXTRA_VARS=$(jq -n \
     amd_npu_device_name: $amd_npu_device_name,
     amd_npu_device_count: $amd_npu_device_count,
     amd_npu_power_mode: $amd_npu_power_mode,
-    ollama_enabled: $ollama_enabled,
-    ollama_chart_version: $ollama_chart_version,
-    ollama_hostname: $ollama_hostname,
-    ollama_port: $ollama_port,
-    ollama_replicas: $ollama_replicas,
-    ollama_gpu_enabled: $ollama_gpu_enabled,
-    ollama_gpu_type: $ollama_gpu_type,
-    ollama_gpu_number: $ollama_gpu_number,
-    ollama_storage_size: $ollama_storage_size,
-    ollama_exporter_port: $ollama_exporter_port,
-    ollama_probe_path: $ollama_probe_path,
-    ollama_liveness_delay_seconds: $ollama_liveness_delay_seconds,
-    ollama_liveness_timeout_seconds: $ollama_liveness_timeout_seconds,
-    ollama_liveness_failure_threshold: $ollama_liveness_failure_threshold,
-    ollama_liveness_period_seconds: $ollama_liveness_period_seconds,
-    ollama_readiness_delay_seconds: $ollama_readiness_delay_seconds,
-    ollama_readiness_timeout_seconds: $ollama_readiness_timeout_seconds,
-    ollama_readiness_failure_threshold: $ollama_readiness_failure_threshold,
-    ollama_readiness_period_seconds: $ollama_readiness_period_seconds,
-    oga_enabled: $oga_enabled,
-    oga_version: $oga_version,
-    oga_image: $oga_image,
-    oga_hostname: $oga_hostname,
-    oga_port: $oga_port,
-    oga_replicas: $oga_replicas,
-    oga_gpu_enabled: $oga_gpu_enabled,
-    oga_gpu_type: $oga_gpu_type,
-    oga_gpu_number: $oga_gpu_number,
-    oga_storage_size: $oga_storage_size,
-    oga_startup_delay_seconds: $oga_startup_delay_seconds,
-    oga_startup_timeout_seconds: $oga_startup_timeout_seconds,
-    oga_startup_failure_threshold: $oga_startup_failure_threshold,
-    oga_startup_period_seconds: $oga_startup_period_seconds,
+    lemonade_enabled: $lemonade_enabled,
+    lemonade_image: $lemonade_image,
+    lemonade_namespace: $lemonade_namespace,
+    lemonade_hostname: $lemonade_hostname,
+    lemonade_port: $lemonade_port,
+    lemonade_replicas: $lemonade_replicas,
+    lemonade_backend: $lemonade_backend,
+    lemonade_gpu_enabled: $lemonade_gpu_enabled,
+    lemonade_gpu_number: $lemonade_gpu_number,
+    lemonade_storage_size: $lemonade_storage_size,
+    lemonade_storage_class: $lemonade_storage_class,
+    lemonade_cpu_request: $lemonade_cpu_request,
+    lemonade_memory_request: $lemonade_memory_request,
+    lemonade_memory_limit: $lemonade_memory_limit,
+    lemonade_probe_path: $lemonade_probe_path,
+    lemonade_liveness_delay_seconds: $lemonade_liveness_delay_seconds,
+    lemonade_liveness_timeout_seconds: $lemonade_liveness_timeout_seconds,
+    lemonade_liveness_failure_threshold: $lemonade_liveness_failure_threshold,
+    lemonade_liveness_period_seconds: $lemonade_liveness_period_seconds,
+    lemonade_readiness_delay_seconds: $lemonade_readiness_delay_seconds,
+    lemonade_readiness_timeout_seconds: $lemonade_readiness_timeout_seconds,
+    lemonade_readiness_failure_threshold: $lemonade_readiness_failure_threshold,
+    lemonade_readiness_period_seconds: $lemonade_readiness_period_seconds,
+    lemonade_default_model: $lemonade_default_model,
+    lemonade_default_model_auto_setup: $lemonade_default_model_auto_setup,
+    lemonade_default_model_setup_retries: $lemonade_default_model_setup_retries,
+    lemonade_default_model_setup_retry_interval: $lemonade_default_model_setup_retry_interval,
     npu_flm_enabled: $npu_flm_enabled,
     npu_flm_port: $npu_flm_port,
     npu_flm_default_model: $npu_flm_default_model,
@@ -507,8 +493,6 @@ EXTRA_VARS=$(jq -n \
     npu_flm_startup_retries: $npu_flm_startup_retries,
     npu_flm_startup_retry_interval: $npu_flm_startup_retry_interval,
     npu_flm_kernel_dir: $npu_flm_kernel_dir,
-    npu_flm_client_timeout: $npu_flm_client_timeout,
-    npu_flm_health_timeout: $npu_flm_health_timeout,
     open_webui_enabled: $open_webui_enabled,
     open_webui_chart_version: $open_webui_chart_version,
     open_webui_image_tag: $open_webui_image_tag,
@@ -602,7 +586,7 @@ log "  - keycloak-pg:        ${KEYCLOAK_PG_CHART_VERSION:-16.3.2}"
 log "  - keycloak:           ${KEYCLOAK_CHART_VERSION:-3.0.12}"
 log "  - rancher:            ${RANCHER_CHART_VERSION:-2.15.2}"
 log "  - monitoring:         ${KUBE_PROMETHEUS_STACK_CHART_VERSION:-91.9.0}"
-log "  - ollama:             ${OLLAMA_CHART_VERSION:-1.84.0}"
+log "  - lemonade:           ${LEMONADE_IMAGE:-ghcr.io/lemonade-sdk/lemonade-server:v2026.40.0}"
 log "  - open-webui:         ${OPEN_WEBUI_CHART_VERSION:-16.6.0}"
 
 # --- 4. 依存コレクションの確認 ---
@@ -778,16 +762,17 @@ cat << EOF
   SSO Login:      Keycloak OIDC (ワンクリックログイン)
   Client ID:      open-webui
   Client Secret:  ${OPEN_WEBUI_CLIENT_SECRET:-open-webui-secret}
-  Backend:        Ollama API (${OLLAMA_HOSTNAME:-ollama.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}})
+  Backend:        Lemonade API (${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}) + FastFlowLM
 
-【Ollama LLM サービス】(Worker ノード: 24コア)
-  API URL:        https://${OLLAMA_HOSTNAME:-ollama.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}
-  Internal URL:   http://ollama.ollama.svc.cluster.local:11434
-  Storage:        PVC (${OLLAMA_STORAGE_SIZE:-30Gi}, local-path)
+【Lemonade Server (GPU LLM / Ollama 互換 API)】(Worker ノード: 24コア)
+  API URL:        https://${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}
+  Internal URL:   http://lemonade.lemonade.svc.cluster.local:${LEMONADE_PORT:-11434}
+  Storage:        PVC (${LEMONADE_STORAGE_SIZE:-30Gi}, local-path)
   Acceleration:   AMD GPU / ROCm パススルー (/dev/kfd, /dev/dri)
 
-【OnnxRuntime GenAI (OGA)】(Worker ノード: 24コア)
-  API URL:        https://${OGA_HOSTNAME:-oga.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}
+【FastFlowLM (OpenAI 互換 NPU API / ホスト)】(Worker ノード: 24コア)
+  Endpoint:       http://${NPU_FLM_HOST_IP:-10.89.0.1}:${NPU_FLM_PORT:-52625}/v1
+  Model:          ${NPU_FLM_DEFAULT_MODEL:-gemma4-it:e4b}
   Acceleration:   AMD NPU (XDNA) パススルー (/dev/accel)
 
 【Keycloak】(Server ノード: 8コア)
@@ -871,44 +856,48 @@ if [[ "$CHECK_MODE" == false && "$SKIP_UPGRADE_CHECK" == false ]]; then
   fi
 fi
 
-# --- 11. 標準 LLM モデルの自動登録 & Open WebUI 標準モデル設定 ---
-if [[ "$CHECK_MODE" == false && "${OLLAMA_ENABLED:-true}" == true \
-  && "${OLLAMA_DEFAULT_MODEL_AUTO_SETUP:-true}" == true && -n "${OLLAMA_DEFAULT_MODEL:-}" ]]; then
+# --- 11. 標準 LLM モデルの自動登録 (Lemonade) & Open WebUI 標準モデル設定 ---
+if [[ "$CHECK_MODE" == false && "${LEMONADE_ENABLED:-true}" == true \
+  && "${LEMONADE_DEFAULT_MODEL_AUTO_SETUP:-true}" == true && -n "${LEMONADE_DEFAULT_MODEL:-}" ]]; then
   echo ""
-  log "標準 LLM モデル (${OLLAMA_DEFAULT_MODEL}) の登録状態を確認中..."
+  log "標準 LLM モデル (${LEMONADE_DEFAULT_MODEL}) の登録状態を確認中..."
 
-  OLLAMA_MODEL_LIST=""
-  for _attempt in $(seq 1 "${OLLAMA_DEFAULT_MODEL_SETUP_RETRIES:-30}"); do
-    if OLLAMA_MODEL_LIST="$("${SCRIPT_DIR}/ollama-pull.sh" --list 2>/dev/null)" && [[ -n "${OLLAMA_MODEL_LIST}" ]]; then
+  LEMONADE_MODEL_LIST=""
+  for _attempt in $(seq 1 "${LEMONADE_DEFAULT_MODEL_SETUP_RETRIES:-30}"); do
+    if LEMONADE_MODEL_LIST="$("${SCRIPT_DIR}/lemonade-pull.sh" --list 2>/dev/null)" && [[ -n "${LEMONADE_MODEL_LIST}" ]]; then
       break
     fi
-    OLLAMA_MODEL_LIST=""
-    sleep "${OLLAMA_DEFAULT_MODEL_SETUP_RETRY_INTERVAL:-2}"
+    LEMONADE_MODEL_LIST=""
+    sleep "${LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL:-2}"
   done
 
-  if [[ -z "${OLLAMA_MODEL_LIST}" ]]; then
-    warn "Ollama に接続できないため標準 LLM モデルの登録をスキップしました"
+  if [[ -z "${LEMONADE_MODEL_LIST}" ]]; then
+    warn "Lemonade に接続できないため標準 LLM モデルの登録をスキップしました"
   else
-    # 登録済みモデル名の検出 (Ollama はモデル名を小文字で保持するため大文字小文字を区別しない)
-    REGISTERED_MODEL="$(printf '%s\n' "${OLLAMA_MODEL_LIST}" \
-      | awk -v m="${OLLAMA_DEFAULT_MODEL}" 'tolower($1) == tolower(m) { print $1; exit }')"
+    # 登録済みモデル名の検出 (大文字小文字を区別しない / :latest サフィックスは同一視)
+    REGISTERED_MODEL="$(printf '%s\n' "${LEMONADE_MODEL_LIST}" \
+      | awk -v m="${LEMONADE_DEFAULT_MODEL}" '{
+          n=$1; sub(/:latest$/, "", n); mm=m; sub(/:latest$/, "", mm)
+          if (tolower(n) == tolower(mm)) { print $1; exit }
+        }')"
 
     if [[ -z "${REGISTERED_MODEL}" ]]; then
       log "標準 LLM モデルが未登録のため pull を実行します (ダウンロードには時間がかかります)..."
-      if "${SCRIPT_DIR}/ollama-pull.sh" "${OLLAMA_DEFAULT_MODEL}"; then
-        OLLAMA_MODEL_LIST="$("${SCRIPT_DIR}/ollama-pull.sh" --list 2>/dev/null || true)"
-        REGISTERED_MODEL="$(printf '%s\n' "${OLLAMA_MODEL_LIST}" \
-          | awk -v m="${OLLAMA_DEFAULT_MODEL}" 'tolower($1) == tolower(m) { print $1; exit }')"
-        REGISTERED_MODEL="${REGISTERED_MODEL:-${OLLAMA_DEFAULT_MODEL}}"
+      if "${SCRIPT_DIR}/lemonade-pull.sh" "${LEMONADE_DEFAULT_MODEL}"; then
+        LEMONADE_MODEL_LIST="$("${SCRIPT_DIR}/lemonade-pull.sh" --list 2>/dev/null || true)"
+        REGISTERED_MODEL="$(printf '%s\n' "${LEMONADE_MODEL_LIST}" \
+          | awk -v m="${LEMONADE_DEFAULT_MODEL}" '{
+              n=$1; sub(/:latest$/, "", n); mm=m; sub(/:latest$/, "", mm)
+              if (tolower(n) == tolower(mm)) { print $1; exit }
+            }')"
+        REGISTERED_MODEL="${REGISTERED_MODEL:-${LEMONADE_DEFAULT_MODEL}}"
         succ "標準 LLM モデルを登録しました: ${REGISTERED_MODEL}"
       else
         REGISTERED_MODEL=""
-        warn "標準 LLM モデルの pull に失敗しました。手動で登録してください: ./ollama-pull.sh ${OLLAMA_DEFAULT_MODEL}"
+        warn "標準 LLM モデルの pull に失敗しました。手動で登録してください: ./lemonade-pull.sh ${LEMONADE_DEFAULT_MODEL}"
       fi
     else
       log "標準 LLM モデルは既に登録されています: ${REGISTERED_MODEL}"
-      # 登録済みモデルでも tools サポートが無い場合は Modelfile を適用して自動再作成
-      "${SCRIPT_DIR}/ollama-pull.sh" --enable-tools "${REGISTERED_MODEL}" || true
     fi
 
     if [[ "${OPEN_WEBUI_ENABLED:-true}" == true ]]; then
@@ -947,22 +936,22 @@ try:
 except Exception:
     web_search_concurrent = 10
 
-    updates = {
-        "ui.default_locale": locale,
-        "ui.default_interface_settings": {"locale": locale, "webSearch": "always"},
-        "web.search.enable": (web_search_enabled.lower() == "true"),
-        "web.search.engine": web_search_engine,
-        "web.search.result_count": web_search_count,
-        "web.search.concurrent_requests": web_search_concurrent,
-        "web.search.bypass_web_loader": True,
-        "web.search.bypass_embedding_and_retrieval": True,
-        "web.search.ddgs_backend": "auto",
-    }
-    if model_id:
-        updates["ui.default_models"] = model_id
-        updates["ui.default_pinned_models"] = model_id
+updates = {
+    "ui.default_locale": locale,
+    "ui.default_interface_settings": {"locale": locale, "webSearch": "always"},
+    "web.search.enable": (web_search_enabled.lower() == "true"),
+    "web.search.engine": web_search_engine,
+    "web.search.result_count": web_search_count,
+    "web.search.concurrent_requests": web_search_concurrent,
+    "web.search.bypass_web_loader": True,
+    "web.search.bypass_embedding_and_retrieval": True,
+    "web.search.ddgs_backend": "auto",
+}
+if model_id:
+    updates["ui.default_models"] = model_id
+    updates["ui.default_pinned_models"] = model_id
 
-    asyncio.run(Config.upsert(updates))
+asyncio.run(Config.upsert(updates))
 
 if model_id:
     print("ui.default_models =", asyncio.run(Config.get("ui.default_models")))

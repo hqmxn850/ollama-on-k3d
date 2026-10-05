@@ -1,0 +1,64 @@
+---
+# ==============================================================================
+# Lemonade Server (GPU LLM / Ollama 互換 API) ロール
+#
+# AMD GPU (ROCm) を用いた Lemonade Server を Worker ノードにデプロイし、
+# Ollama 互換 API (/api/*) と OpenAI 互換 API (/api/v1) を提供する。
+# 旧 Ollama / OGA ロールの後継として、既存リソースがあれば削除してから
+# Lemonade 専用の PVC / Deployment / Service / Ingress を冪等に適用する。
+# ==============================================================================
+
+- name: 旧 Ollama / OGA リソースを削除 (Lemonade への移行掃除)
+  ansible.builtin.shell: |
+    helm uninstall {{ legacy_component }} -n {{ legacy_component }} --ignore-not-found >/dev/null 2>&1 || true
+    kubectl delete namespace {{ legacy_component }} --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  loop:
+    - ollama
+    - oga
+  loop_control:
+    loop_var: legacy_component
+  register: legacy_cleanup
+  changed_when: false
+  failed_when: false
+
+- name: Lemonade 名前空間を作成
+  ansible.builtin.command: "kubectl create namespace {{ lemonade_namespace }}"
+  register: create_lemonade_ns
+  changed_when: "'created' in create_lemonade_ns.stdout"
+  failed_when: false
+
+- name: Lemonade NetworkPolicy を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'lemonade-networkpolicy.yaml.j2') }}"
+  register: apply_lemonade_netpol
+  changed_when: "'created' in apply_lemonade_netpol.stdout or 'configured' in apply_lemonade_netpol.stdout"
+  when: enable_network_policy | default(true) | bool
+
+- name: Lemonade マニフェスト (PVC, Deployment, Service, Ingress) を適用
+  ansible.builtin.command: "kubectl apply -f -"
+  args:
+    stdin: "{{ lookup('template', 'lemonade-manifests.yaml.j2') }}"
+  register: apply_lemonade_manifests
+  changed_when: "'created' in apply_lemonade_manifests.stdout or 'configured' in apply_lemonade_manifests.stdout"
+
+- name: Lemonade Deployment のロールアウト完了を待機
+  ansible.builtin.command: >-
+    kubectl rollout status deployment/lemonade
+    -n {{ lemonade_namespace }}
+    --timeout={{ default_rollout_timeout | default('300s') }}
+  register: lemonade_rollout
+  until: lemonade_rollout.rc == 0
+  retries: "{{ quick_retry_count | default(10) }}"
+  delay: "{{ quick_retry_delay | default(5) }}"
+  changed_when: false
+
+- name: Lemonade Pod のステータスと GPU 割当を確認
+  ansible.builtin.shell: |
+    kubectl get pods -n {{ lemonade_namespace }} -o wide
+  register: lemonade_pods_status
+  changed_when: false
+
+- name: Lemonade Pod ステータスを表示
+  ansible.builtin.debug:
+    msg: "{{ lemonade_pods_status.stdout_lines | default([]) }}"

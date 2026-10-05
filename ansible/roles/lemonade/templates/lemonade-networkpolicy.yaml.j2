@@ -1,12 +1,12 @@
 ---
 # ==========================================================
-# Application Plane Protection NetworkPolicy: OnnxRuntime GenAI (oga)
+# Application Plane Protection NetworkPolicy: Lemonade (lemonade)
 # ==========================================================
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: oga-app-protection
-  namespace: {{ oga_namespace | default('oga') }}
+  name: lemonade-app-protection
+  namespace: {{ lemonade_namespace | default('lemonade') }}
 spec:
   podSelector: {}
   policyTypes:
@@ -17,7 +17,7 @@ spec:
     - from:
         - podSelector: {}
 
-    # 2. Traefik Ingress (kube-system) からの OGA API アクセス
+    # 2. Traefik Ingress (kube-system) からの Lemonade API アクセス
     - from:
         - namespaceSelector:
             matchLabels:
@@ -27,14 +27,18 @@ spec:
               app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
-          port: {{ oga_port | default(8000) }}
+          port: {{ lemonade_port | default(11434) }}
 
-    # 3. クラスタ内部クライアントからの API アクセス許可
-    - ports:
+    # 3. Open WebUI 名前空間からの推論 API アクセス
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ open_webui_namespace | default('open-webui') }}
+      ports:
         - protocol: TCP
-          port: {{ oga_port | default(8000) }}
+          port: {{ lemonade_port | default(11434) }}
 
-    # 4. Prometheus 監視基盤からのメトリクススクレイプ許可
+    # 4. Prometheus 監視基盤からのメトリクススクレイプ許可 (/metrics)
     - from:
         - namespaceSelector:
             matchLabels:
@@ -44,10 +48,7 @@ spec:
               app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
-          port: {{ oga_port | default(8000) }}
-    - ports:
-        - protocol: TCP
-          port: {{ oga_port | default(8000) }}
+          port: {{ lemonade_port | default(11434) }}
 
   egress:
     # 1. DNS 名前解決 (CoreDNS)
@@ -68,7 +69,7 @@ spec:
     - to:
         - podSelector: {}
 
-    # 3. 外部モデルダウンロード・HTTPS 通信 (HuggingFace, PyPI 等)
+    # 3. 外部モデルダウンロード・ROCm バックエンド取得 (HuggingFace / GitHub 等)
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -79,12 +80,3 @@ spec:
           port: {{ http_port | default(80) }}
         - protocol: TCP
           port: {{ https_port | default(443) }}
-
-    # 4. ホスト NPU 推論エンジン (FastFlowLM / FLM) への接続許可
-    - to:
-        - ipBlock:
-            cidr: {{ npu_flm_host_ip | default('10.89.0.1') }}/32
-      ports:
-        - protocol: TCP
-          port: {{ npu_flm_port | default(52625) }}
-

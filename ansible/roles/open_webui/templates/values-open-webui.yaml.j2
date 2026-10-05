@@ -6,13 +6,13 @@
 nameOverride: "open-webui"
 fullnameOverride: "open-webui"
 
-# 外部 Ollama (本クラスタの独立した Ollama Pod / Service) を利用
+# 標組み Ollama サービスは利用しない (Ollama 互換 API はクラスタ内の Lemonade が提供)
 ollama:
   enabled: false
 
-# クラスタ内 Ollama エンドポイント
+# クラスタ内 Lemonade (Ollama 互換 API) エンドポイント
 ollamaUrls:
-  - "http://ollama.{{ ollama_namespace | default('ollama') }}.svc.cluster.local:{{ ollama_port | default(11434) }}"
+  - "http://{{ lemonade_namespace | default('lemonade') }}.{{ lemonade_namespace | default('lemonade') }}.svc.cluster.local:{{ lemonade_port | default(11434) }}"
 
 # Pipelines, Tika, Terminals は不要のため無効化
 pipelines:
@@ -102,9 +102,9 @@ extraEnvVars:
     value: "true"
   - name: ENABLE_OAUTH_PERSISTENT_CONFIG
     value: "false"
-  # OGA (ONNX Runtime GenAI) OpenAI 互換 API 連携
+  # ホスト FastFlowLM (AMD XDNA NPU) OpenAI 互換 API 直接連携
   - name: OPENAI_API_BASE_URLS
-    value: "http://oga.{{ oga_namespace | default('oga') }}.svc.cluster.local:{{ oga_port | default(8000) }}/v1"
+    value: "{{ 'http://' ~ npu_flm_host_ip ~ ':' ~ npu_flm_port ~ '/v1' if (npu_flm_enabled | default(true) | bool) else '' }}"
   - name: OPENAI_API_KEYS
     value: "none"
   # Web 検索 (RAG Web Search) 設定

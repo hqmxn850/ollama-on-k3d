@@ -5,7 +5,7 @@ set -euo pipefail
 # 全体テスト (End-to-End Test)
 # - クラスタの起動 (./start.sh)
 # - ノード・サービスの正常性確認 (Server 8コア / Worker 24コア)
-# - AI サービス (Ollama / Open WebUI) の健全性確認
+# - AI サービス (Lemonade / Open WebUI) の健全性確認
 # - クラスタの停止 (./stop.sh)
 # - 停止前の images.txt 自動更新 & Podman キャッシュ保存確認
 # - リソースの完全クリーンアップ確認
@@ -105,18 +105,18 @@ else
   fail "kubeconfig が存在しません: $KUBECONFIG_PATH"
 fi
 
-info "E2E Step 3: AI サービス (Ollama / Open WebUI) 健全性確認"
+info "E2E Step 3: AI サービス (Lemonade / Open WebUI) 健全性確認"
 DEFAULT_EMAIL_DOMAIN="philippines.com.ph"
 source config.env 2>/dev/null || true
 OPEN_WEBUI_HOST="${OPEN_WEBUI_HOSTNAME:-chat.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}"
-OLLAMA_HOST="${OLLAMA_HOSTNAME:-ollama.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}"
+LEMONADE_HOST="${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}"
 
-# Ollama API 疎通確認
-OLLAMA_HTTP=$(curl -sk -o /dev/null -w "%{http_code}" "https://${OLLAMA_HOST}/api/tags" 2>/dev/null || echo "000")
-if [[ "$OLLAMA_HTTP" == "200" ]]; then
-  pass "Ollama API 疎通確認 (HTTP 200 / https://${OLLAMA_HOST}/api/tags)"
+# Lemonade API (Ollama 互換) 疎通確認
+LEMONADE_HTTP=$(curl -sk -o /dev/null -w "%{http_code}" "https://${LEMONADE_HOST}/api/tags" 2>/dev/null || echo "000")
+if [[ "$LEMONADE_HTTP" == "200" ]]; then
+  pass "Lemonade API 疎通確認 (HTTP 200 / https://${LEMONADE_HOST}/api/tags)"
 else
-  warn "Ollama API 疎通 (HTTP ${OLLAMA_HTTP} / https://${OLLAMA_HOST})"
+  warn "Lemonade API 疎通 (HTTP ${LEMONADE_HTTP} / https://${LEMONADE_HOST})"
 fi
 
 # Open WebUI 疎通確認
@@ -174,7 +174,7 @@ fi
 
 # 2. Podman にイメージが保存されているか確認
 if command -v podman &>/dev/null; then
-  CACHED_COUNT=$(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep -E "rancher|keycloak|ollama|open-webui" | wc -l || true)
+  CACHED_COUNT=$(sudo podman images --format "{{.Repository}}:{{.Tag}}" | grep -E "rancher|keycloak|lemonade|open-webui" | wc -l || true)
   if [[ $CACHED_COUNT -gt 0 ]]; then
     pass "Podman キャッシュ保存確認: ${CACHED_COUNT} 個のクラスタ関連イメージを確認"
   else

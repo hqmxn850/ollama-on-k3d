@@ -15,16 +15,16 @@ import os
 class Pipe:
     class Valves(BaseModel):
         MODELS: str = Field(
-            default="FieldMouse-AI/qwen3.8:27B, gemma4-it:e4b",
+            default="Qwen3.8-27B-GGUF, gemma4-it:e4b",
             description="並列問い合わせを行うモデル名のカンマ区切りリスト"
         )
         OLLAMA_URL: str = Field(
-            default="http://ollama.ollama.svc.cluster.local:11434",
-            description="Ollama サービス URL"
+            default="http://lemonade.lemonade.svc.cluster.local:11434",
+            description="Lemonade (Ollama 互換 API) サービス URL"
         )
         OGA_URL: str = Field(
-            default="http://oga.oga.svc.cluster.local:8000/v1",
-            description="OGA / NPU (FastFlowLM) サービス URL"
+            default="",
+            description="FastFlowLM (OpenAI 互換 API) サービス URL (未設定時は環境変数 OPENAI_API_BASE_URLS を使用)"
         )
         TIMEOUT_SECONDS: int = Field(
             default=300,
@@ -50,7 +50,7 @@ class Pipe:
         # URL 組み立てと絶対URLチェック
         url = (base_url or "").strip().rstrip('/')
         if not url.startswith("http://") and not url.startswith("https://"):
-            url = "http://ollama.ollama.svc.cluster.local:11434"
+            url = "http://lemonade.lemonade.svc.cluster.local:11434"
 
         # /v1/chat/completions エンドポイントの保証
         if url.endswith("/v1"):
@@ -89,16 +89,16 @@ class Pipe:
         if not models:
             return "モデルが設定されていません。"
 
-        # クラスタ内サービスURL解決 (環境変数からのフォールバック)
-        env_ollama = os.environ.get("OLLAMA_BASE_URLS") or ""
+        # クラスタ内サービス URL 解決 (環境変数を優先、Valves はフォールバック)
+        env_ollama = (os.environ.get("OLLAMA_BASE_URLS") or "").strip()
         if not env_ollama.startswith("http"):
-            env_ollama = "http://ollama.ollama.svc.cluster.local:11434"
-        ollama_url = self.valves.OLLAMA_URL or env_ollama
+            env_ollama = self.valves.OLLAMA_URL or "http://lemonade.lemonade.svc.cluster.local:11434"
+        ollama_url = env_ollama
 
-        env_oga = os.environ.get("OPENAI_API_BASE_URLS") or ""
+        env_oga = (os.environ.get("OPENAI_API_BASE_URLS") or "").strip()
         if not env_oga.startswith("http"):
-            env_oga = "http://oga.oga.svc.cluster.local:8000/v1"
-        oga_url = self.valves.OGA_URL or env_oga
+            env_oga = self.valves.OGA_URL or ""
+        oga_url = env_oga
 
         async with aiohttp.ClientSession() as session:
             tasks = []

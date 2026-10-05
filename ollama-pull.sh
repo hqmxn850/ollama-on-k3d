@@ -1,1 +1,0 @@
-ansible/roles/ollama/files/ollama-pull.sh

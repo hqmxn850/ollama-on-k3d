@@ -7,7 +7,7 @@
 ## 1. 概要とテスト方針
 
 ### 1.1 目的
-- K3D クラスタ（Server 1ノード 8コア / Worker 1ノード 24コア）およびローカル AI スタック（Ollama, OGA, Open WebUI, Keycloak, PostgreSQL, pgAdmin 4, Rancher, Monitoring Stack）の正常性、ハードウェアアクセラレーション透過性、セキュリティ分離、冪等性を検証する。
+- K3D クラスタ（Server 1ノード 8コア / Worker 1ノード 24コア）およびローカル AI スタック（Lemonade, FastFlowLM, Open WebUI, Keycloak, PostgreSQL, pgAdmin 4, Rancher, Monitoring Stack）の正常性、ハードウェアアクセラレーション透過性、セキュリティ分離、冪等性を検証する。
 - スクリプト・Playbook の構文検証から、個別機能、コンポーネント間連携、E2E ライフサイクル（作成・停止・アップグレード・クリーンアップ）までを一貫して自動検証できる体制を確立する。
 
 ### 1.2 テストレベル分類
@@ -17,7 +17,7 @@
 | **単体・個別機能テスト (Unit)** | `./test.sh --unit`<br>`tests/test-unit.sh` | スクリプト構文、Ansible 構文、インベントリ、引数バリデーション、非破壊イメージ抽出、Jinja2 テンプレート構文、`--tags` 選択整合性、共通タスク整合性 | 非破壊・高速（数秒〜十数秒）。クラスタ停止中・起動中の双方で安全に実行可能。 |
 | **全体ライフサイクルテスト (E2E)** | `./test.sh --e2e`<br>`tests/test-e2e.sh` | クラスタ起動 (`start.sh`)、ノード・Pod 健全性、AI サービス疎通、クラスタ停止 (`stop.sh`)、キャッシュ保存、完全削除 | クラスタの再作成を伴う包括的ライフサイクル検証（約 5〜10 分）。 |
 | **自動アップグレードテスト (Upgrade)** | `./upgrade.sh --check` | K3s、全 Helm Chart、主要コンテナイメージの最新版検索・バージョン比較 | 既存環境を破壊せずに最新バージョン差分を検出・表示。 |
-| **機能別統合検証 (Component)** | `kubectl` / `curl` 手動実行 | 各サービスの個別詳細機能（SSO、Ollama API、NPU デバイス、ダッシュボード等） | 本仕様書に記載の検証コマンドによる各コンポーネントの動作確認。 |
+| **機能別統合検証 (Component)** | `kubectl` / `curl` 手動実行 | 各サービスの個別詳細機能（SSO、Lemonade API、NPU デバイス、ダッシュボード等） | 本仕様書に記載の検証コマンドによる各コンポーネントの動作確認。 |
 
 ---
 
@@ -46,7 +46,7 @@
 #### 【TC-UNIT-01】スクリプト構文検証 (Shell / Python)
 - **前提**: プロジェクトルートに各スクリプトが存在すること。
 - **操作**: `bash -n <script>` および `python3 -m py_compile <script>` を実行。
-  - 対象: `start.sh`, `stop.sh`, `upgrade.sh`, `test.sh`, `tests/*.sh`, `import-images.sh`, `lib/common.sh`, `save-images.sh`, `patch-rancher-i18n.sh`, `ollama-pull.sh`, `patch-dashboards.py`
+  - 対象: `start.sh`, `stop.sh`, `upgrade.sh`, `test.sh`, `tests/*.sh`, `import-images.sh`, `lib/common.sh`, `save-images.sh`, `patch-rancher-i18n.sh`, `lemonade-pull.sh`, `patch-dashboards.py`
 - **期待結果**: 全ファイルで構文エラー (Syntax Error) が検出されず、リターンコード 0 で終了すること。
 
 #### 【TC-UNIT-02】設定変数ファイル検証 (`config.env` / `versions.env`)
@@ -72,7 +72,7 @@
   - `ensure_latest_kubectl` および `ensure_latest_helm` 関数の定義と最新バージョン確認・スキップ（冪等性）を検証。
   - `save-images.sh` を無効な KUBECONFIG (`/dev/null`) で実行。
   - `save-images.sh` を環境変数 `_SAVED_IMAGES_DONE=1` 設定下で二重実行。
-  - `start.sh --help`, `upgrade.sh --help`, `stop.sh --help`, `trust-ca.sh --help`, `ollama-pull.sh --help` を実行。
+  - `start.sh --help`, `upgrade.sh --help`, `stop.sh --help`, `trust-ca.sh --help`, `lemonade-pull.sh --help` を実行。
 - **期待結果**: 各共通関数が正常に評価され、異常系において安全なスキップメッセージまたはヘルプ画面を出力して終了すること。
 
 #### 【TC-UNIT-05】Jinja2 テンプレート構文 & タグ・共通タスク整合性検証
@@ -101,14 +101,14 @@
 - **期待結果**:
   - `kube-system`: CoreDNS (1), Traefik (1), metrics-server (1), local-path (1) が Running
   - `keycloak`: Keycloak (1), PostgreSQL (1), pgAdmin (1) が Running (Server ノード)
-  - `ollama`: Ollama (1), Ollama Exporter (1) が Running (Worker ノード)
+  - `lemonade`: Lemonade (1) が Running (Worker ノード)
   - `open-webui`: Open WebUI (1) が Running (Worker ノード)
   - `cattle-system`: Rancher (1), Rancher Webhook (1) が Running (Server ノード)
   - `cattle-monitoring-system`: Alertmanager (1), Prometheus (1), Prometheus Operator (1), Grafana (1), Node Exporter (2) が Running (Server ノード)
 
 #### 【TC-E2E-03】AI サービス健全性確認
 - **前提**: TC-E2E-02 が完了していること。
-- **操作**: Ollama API (`https://ollama.philippines.com.ph/api/tags`) および Open WebUI (`https://chat.philippines.com.ph/`) へ疎通。
+- **操作**: Lemonade API (`https://lemonade.philippines.com.ph/api/tags`) および Open WebUI (`https://chat.philippines.com.ph/`) へ疎通。
 - **期待結果**: HTTP 200 (またはリダイレクト) が返却されること。
 
 #### 【TC-E2E-04】クラスタ停止 & イメージ自動保存・クリーンアップ検証
@@ -124,15 +124,15 @@
 
 ## 4. 機能別統合テスト仕様 (Component Verification)
 
-### 4.1 AI / LLM ワークロード (Ollama / Open WebUI / OGA)
+### 4.1 AI / LLM ワークロード (Lemonade / FastFlowLM / Open WebUI)
 
 | テスト ID | 検証項目 | 前提条件 | 操作手順 | 期待結果 | 検証コマンド |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TC-AI-01** | Ollama API 疎通 | Ollama 稼働中 | `/api/tags` エンドポイントへアクセス | HTTP 200 およびモデル一覧 JSON が返却されること | `curl -sk https://ollama.philippines.com.ph/api/tags` |
-| **TC-AI-02** | AMD GPU パススルー | Worker ノード稼働中 | Ollama Pod 内で ROCm デバイス確認 | `/dev/kfd` および `/dev/dri` がマウントされ、GPU が認識されていること | `kubectl -n ollama exec deploy/ollama -- ls -la /dev/kfd /dev/dri` |
-| **TC-AI-03** | AMD NPU パススルー | Worker ノード稼働中 | NPU Device Plugin および OGA Pod 確認 | `/dev/accel` が認識され、NPU リソース (`amd.com/npu`) が割当可能であること | `kubectl describe node -l node-role.kubernetes.io/worker=true \| grep -i "amd.com/npu"` |
+| **TC-AI-01** | Lemonade API 疎通 (Ollama 互換) | Lemonade 稼働中 | `/api/tags` エンドポイントへアクセス | HTTP 200 およびモデル一覧 JSON が返却されること | `curl -sk https://lemonade.philippines.com.ph/api/tags` |
+| **TC-AI-02** | AMD GPU パススルー | Worker ノード稼働中 | Lemonade Pod 内で ROCm デバイス確認 | `/dev/kfd` および `/dev/dri` がマウントされ、GPU が認識されていること | `kubectl -n lemonade exec deploy/lemonade -- ls -la /dev/kfd /dev/dri` |
+| **TC-AI-03** | AMD NPU パススルー | Worker ノード稼働中 | NPU Device Plugin および FastFlowLM (ホスト) 確認 | `/dev/accel` が認識され、NPU リソース (`amd.com/npu`) が割当可能であること | `kubectl describe node -l node-role.kubernetes.io/worker=true \| grep -i "amd.com/npu"` |
 | **TC-AI-04** | Open WebUI SSO ログイン | Open WebUI 稼働中 | Web UI へアクセスし Keycloak 認証リダイレクトを確認 | Keycloak OIDC 認証画面が表示され、ワンクリックログインできること | ブラウザで `https://chat.philippines.com.ph` にアクセス |
-| **TC-AI-05** | モデル pull / 推論動作 | Ollama 稼働中 | `./ollama-pull.sh pull <model>` を実行 | モデルが PVC (`local-path`) へダウンロードされ推論が可能なこと | `./ollama-pull.sh pull qwen2.5-coder:0.5b` |
+| **TC-AI-05** | モデル pull / 推論動作 | Lemonade 稼働中 | `./lemonade-pull.sh pull <model>` を実行 | モデルが PVC (`local-path`) へダウンロードされ推論が可能なこと | `./lemonade-pull.sh pull Qwen3.8-27B-GGUF` |
 
 ### 4.2 Keycloak & 認証・運用 DB
 
@@ -146,7 +146,7 @@
 
 | テスト ID | 検証項目 | 前提条件 | 操作手順 | 期待結果 | 検証コマンド |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TC-MON-01** | Ollama Exporter スクレイプ健全性 | 監視スタック稼働中 | Prometheus API から activeTargets を照会 | `ollama-exporter` ターゲットが `health: "up"` であること | `kubectl run test-targets --rm -i --image=curlimages/curl:latest --restart=Never -- curl -s http://kube-prometheus-stack-prometheus.cattle-monitoring-system:9090/api/v1/targets \| jq '[.data.activeTargets[] \| select(.labels.job == "ollama-exporter")]'` |
+| **TC-MON-01** | Lemonade スクレイプ健全性 | 監視スタック稼働中 | Prometheus API から activeTargets を照会 | `lemonade` サービスターゲットが `health: "up"` であること | `kubectl run test-targets --rm -i --image=curlimages/curl:latest --restart=Never -- curl -s http://kube-prometheus-stack-prometheus.cattle-monitoring-system:9090/api/v1/targets \| jq '[.data.activeTargets[] \| select(.labels.service == "lemonade")]'` |
 | **TC-MON-02** | Grafana ダッシュボード自動ロード | Grafana 稼働中 | Grafana API でプロビジョニング済みダッシュボードを検索 | **PostgreSQL Overview**, **K8S Dashboard** 等が一覧に含まれること | `curl -sk -u admin:admin "https://grafana.philippines.com.ph/api/search" \| jq -r '.[].title'` |
 
 ---
@@ -162,7 +162,7 @@
 ./test.sh --unit
 ```
 
-**合否判定基準**: `個別テスト結果: 51 PASSED, 0 FAILED` で終了コード 0 であること。
+**合否判定基準**: `個別テスト結果: 61 PASSED, 0 FAILED` で終了コード 0 であること。
 
 ### 5.2 全体ライフサイクルテスト (E2E) の実行
 クリーンな環境からクラスタを作成し、全サービス健全性、AI 疎通、停止、イメージ保存、クリーンアップを一気通貫で検証します。
@@ -180,7 +180,7 @@
 
 **合否判定基準**: 
 1. 全 2 ノード (Server 8コア, Worker 24コア) が Ready
-2. Ollama / Open WebUI が正常稼働
+2. Lemonade / Open WebUI が正常稼働
 3. 停止処理が正常完了
 4. `images.txt` が更新
 5. Podman ストレージにイメージがキャッシュ保存

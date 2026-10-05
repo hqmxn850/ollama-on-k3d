@@ -17,6 +17,7 @@ flowchart TD
     subgraph Host["ホスト OS (Linux)"]
         Browser["クライアント / Webブラウザ / CLI"]
         NM["NetworkManager + dnsmasq<br/>(127.0.0.1:53)"]
+        HostFlm["FastFlowLM (flm serve :52625)<br/>XDNA NPU 推論 (ホスト常駐)"]
         Browser -->|"*.philippines.com.ph"| NM
     end
 
@@ -42,29 +43,27 @@ flowchart TD
 
         subgraph WorkerPlane["② AI / LLM ワークロードプレーン (Worker ノード: 24コア)"]
             OpenWebUI["Open WebUI (open-webui: 8080)<br/>Web チャットフロントエンド"]
-            OllamaApp["Ollama API (ollama: 11434)<br/>LLM 推論エンジン (ROCm GPU)"]
-            OgaApp["OGA API (oga: 8000)<br/>SLM 推論エンジン (XDNA NPU)"]
-            OllamaExp["Ollama Exporter (ollama: 9115)"]
+            LemonadeApp["Lemonade API (lemonade: 11434)<br/>LLM 推論エンジン (ROCm GPU / Ollama 互換)"]
             GpuPlugin["AMD GPU Device Plugin (/dev/kfd, /dev/dri)"]
             NpuPlugin["AMD NPU Device Plugin (/dev/accel)"]
         end
 
         %% トラフィックフロー
         Traefik -->|"https://chat.*"| OpenWebUI
-        Traefik -->|"https://ollama.*"| OllamaApp
-        Traefik -->|"https://oga.*"| OgaApp
+        Traefik -->|"https://lemonade.*"| LemonadeApp
         Traefik -->|"https://keycloak.*"| KeycloakApp
         Traefik -->|"https://grafana.*"| MonitoringApp
         Traefik -->|"https://rancher.*"| RancherApp
         Traefik -->|"https://pgadmin.*"| PgAdminApp
 
         %% AI 内部通信
-        OpenWebUI -->|"内部推論リクエスト (Port 11434)"| OllamaApp
+        OpenWebUI -->|"内部推論リクエスト (Port 11434)"| LemonadeApp
+        OpenWebUI -->|"ホスト FastFlowLM (Port 52625)"| HostFlm
         OpenWebUI -->|"OIDC SSO 認証"| KeycloakApp
 
         %% 監視・DB
         KeycloakApp -->|"永続化 (Port 5432)"| PostgresPri
-        MonitoringApp -->|"メトリクス収集 (Port 9115)"| OllamaExp
+        MonitoringApp -->|"メトリクス収集 (/metrics)"| LemonadeApp
         MonitoringApp -->|"DBメトリクス収集 (Port 9187)"| PostgresPri
     end
 ```
@@ -112,8 +111,7 @@ K3s が提供する内部オーバーレイネットワークおよび Service �
 | サービス名 | ホスト名 (デフォルト) | 宛先 Service | ポート | 認証方式 | 配置ノード |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Open WebUI** | `chat.philippines.com.ph` | `open-webui` | 8080 | Keycloak OIDC SSO | Worker (24コア) |
-| **Ollama API** | `ollama.philippines.com.ph` | `ollama` | 11434 | 内部/API Direct | Worker (24コア) |
-| **OGA API** | `oga.philippines.com.ph` | `oga` | 8000 | 内部/API Direct | Worker (24コア) |
+| **Lemonade API** | `lemonade.philippines.com.ph` | `lemonade` | 11434 | 内部/API Direct (Ollama 互換) | Worker (24コア) |
 | **Keycloak** | `keycloak.philippines.com.ph` | `keycloak-keycloak` | 8080 | 独自認証 / Admin UI | Server (8コア) |
 | **pgAdmin 4** | `pgadmin.philippines.com.ph` | `pgadmin` | 80 | Keycloak OIDC SSO | Server (8コア) |
 | **Grafana** | `grafana.philippines.com.ph` | `kube-prometheus-stack-grafana` | 3000 | Keycloak OIDC SSO | Server (8コア) |
@@ -125,4 +123,4 @@ K3s が提供する内部オーバーレイネットワークおよび Service �
 `enable_network_policy: true` 時、名前空間間および Pod 間の不正アクセスを遮断します。
 
 - **PostgreSQL 隔離**: `keycloak` 名前空間内の PostgreSQL ポート 5432 は、認可された Pod（Keycloak, pgAdmin, Grafana）からの通信のみを Ingress 許可し、他名前空間からの直接アクセスを遮断。
-- **Ollama API 隔離**: 推論 API は同一名前空間の Exporter および `open-webui` 名前空間からの通信のみに最適化。
+- **Lemonade API 隔離**: 推論 API は同一名前空間の Pod および `open-webui` / `traefik` / `cattle-monitoring-system` 名前空間からの通信のみを許可。

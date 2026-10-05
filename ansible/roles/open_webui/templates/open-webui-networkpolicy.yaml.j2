@@ -53,12 +53,12 @@ spec:
     - to:
         - podSelector: {}
 
-    # 3. クラスタ内部サービス通信 (Ollama, OGA, Keycloak, PostgreSQL)
+    # 3. クラスタ内部サービス通信 (Lemonade, Keycloak, PostgreSQL) & ホスト FastFlowLM
     - ports:
         - protocol: TCP
-          port: {{ ollama_port | default(11434) }}
+          port: {{ lemonade_port | default(11434) }}
         - protocol: TCP
-          port: {{ oga_port | default(8000) }}
+          port: {{ npu_flm_port | default(52625) }}
         - protocol: TCP
           port: {{ keycloak_http_port | default(8080) }}
         - protocol: TCP

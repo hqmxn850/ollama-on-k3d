@@ -1,6 +1,6 @@
 # ollama-on-k3d
 
-Podman 環境上で K3D を用い、ホストの CPU リソースを最適分離してローカル AI / LLM ワークロード（Ollama, Open WebUI, OGA）を完全自動デプロイするプロジェクトです。
+Podman 環境上で K3D を用い、ホストの CPU リソースを最適分離してローカル AI / LLM ワークロード（Lemonade, FastFlowLM, Open WebUI）を完全自動デプロイするプロジェクトです。
 
 ---
 
@@ -10,7 +10,7 @@ Podman 環境上で K3D を用い、ホストの CPU リソースを最適分離
 - **オーケストレーション**: K3D (K3s in Docker)
 - **CPU コア分離**:
   - **Server ノード**: 8 コア (`0-7`) - コントロールプレーン、CORE、SSO、監視基盤
-  - **Worker ノード**: 24 コア (`8-31`) - AI / LLM 推論基盤 (Ollama, OGA, Open WebUI)
+  - **Worker ノード**: 24 コア (`8-31`) - AI / LLM 推論基盤 (Lemonade, FastFlowLM, Open WebUI)
 - **ハードウェアアクセラレーション**:
   - AMD GPU / ROCm パススルー (`/dev/kfd`, `/dev/dri`)
   - AMD NPU / XDNA パススルー (`/dev/accel`) & Turbo モード自動有効化 (最大クロック/性能)
@@ -18,7 +18,7 @@ Podman 環境上で K3D を用い、ホストの CPU リソースを最適分離
   - Open WebUI (Local AI チャットフロントエンド)
   - Keycloak (OIDC 統合認証基盤、ワンクリック SSO)
   - Rancher Manager (完全日本語化)
-  - Grafana (日本語対応、Ollama Exporter 監視ダッシュボード)
+  - Grafana (日本語対応、Lemonade / AMD NPU 監視ダッシュボード)
   - pgAdmin 4 (PostgreSQL Web 管理)
 - **ストレージ**: K3s 標準 `local-path` (軽量 host-path 永続化)
 - **完全自動化**: Shell スクリプト (`start.sh` / `stop.sh`) & Ansible Playbooks (`ansible/`)
@@ -56,18 +56,18 @@ vim config.env
 
 ### 2. AI モデルのダウンロード (Pull)
 
-クラスタ起動後、`ollama-pull.sh` を使用して Kubernetes 上の Ollama Pod に直接モデルをダウンロード・永続化できます。
+クラスタ起動後、`lemonade-pull.sh` を使用して Kubernetes 上の Lemonade Pod に直接モデルをダウンロード・永続化できます (`start.sh` はデプロイ末尾で `LEMONADE_DEFAULT_MODEL` を自動 pull します)。
 
 ```bash
 # モデルのダウンロード
-./ollama-pull.sh pull qwen2.5-coder:0.5b
-./ollama-pull.sh pull llama3.2:3b
+./lemonade-pull.sh pull Qwen3.8-27B-GGUF
+./lemonade-pull.sh pull Qwen3-4B-GGUF
 
 # ダウンロード済みモデル一覧確認
-./ollama-pull.sh list
+./lemonade-pull.sh list
 
 # モデルの削除
-./ollama-pull.sh rm <モデル名>
+./lemonade-pull.sh rm <モデル名>
 ```
 
 ### 3. Web チャット UI の利用
@@ -93,6 +93,7 @@ flowchart TD
     subgraph Host["ホスト OS (Linux / 32 コア)"]
         Browser["クライアント / Web ブラウザ"]
         NM["NetworkManager + dnsmasq (127.0.0.1:53)"]
+        FastFlowLM["FastFlowLM (flm serve :52625 / XDNA NPU)"]
     end
 
     Browser -->|"*.philippines.com.ph"| NM
@@ -112,18 +113,18 @@ flowchart TD
         subgraph WorkerNode["Worker ノード (24 コア: 8-31)"]
             direction TB
             OpenWebUI["Open WebUI (Web チャット)"]
-            Ollama["Ollama API (ROCm GPU パススルー)"]
-            OGA["OGA API (XDNA NPU パススルー)"]
-            OllamaExp["Ollama Exporter"]
+            Lemonade["Lemonade API (ROCm GPU パススルー)"]
+            NPUPlugin["AMD GPU / NPU Device Plugin"]
             PVC["PVC (30Gi local-path)"]
         end
     end
 
-    Traefik -->|"L7 ルーティング"| OpenWebUI & Ollama & Keycloak & Grafana & Rancher
-    OpenWebUI -->|"推論リクエスト (Port 11434)"| Ollama
+    Traefik -->|"L7 ルーティング"| OpenWebUI & Lemonade & Keycloak & Grafana & Rancher
+    OpenWebUI -->|"Ollama 互換 API (Port 11434)"| Lemonade
+    OpenWebUI -->|"OpenAI 互換 API (Port 52625)"| FastFlowLM
     OpenWebUI -->|"SSO 認証"| Keycloak
-    Monitoring -->|"メトリクス収集 (Port 9115)"| OllamaExp
-    Ollama -.->|"モデル永続化"| PVC
+    Monitoring -->|"メトリクス収集 (/metrics)"| Lemonade
+    Lemonade -.->|"モデル永続化"| PVC
 ```
 
 ---
@@ -133,8 +134,8 @@ flowchart TD
 | サービス名 | 公開 URL | 認証方式 | 初期管理者ユーザー | 配置ノード |
 | :--- | :--- | :--- | :--- | :--- |
 | **Open WebUI** | `https://chat.philippines.com.ph` | Keycloak OIDC SSO (ワンクリック) | `admin` | Worker (24コア) |
-| **Ollama API** | `https://ollama.philippines.com.ph` | API Direct (`/api/tags`) | - | Worker (24コア) |
-| **OnnxRuntime GenAI (OGA)** | `https://oga.philippines.com.ph` | API Direct | - | Worker (24コア) |
+| **Lemonade API (Ollama 互換)** | `https://lemonade.philippines.com.ph` | API Direct (`/api/tags`) | - | Worker (24コア) |
+| **FastFlowLM (OpenAI 互換)** | `http://10.89.0.1:52625/v1` (ホスト直結・非公開) | 内部 API | - | ホスト (Worker ノード側) |
 | **Keycloak 管理画面** | `https://keycloak.philippines.com.ph/admin` | 管理者認証 | `admin` / `admin` | Server (8コア) |
 | **pgAdmin 4** | `https://pgadmin.philippines.com.ph` | Keycloak OIDC SSO | `admin@philippines.com.ph` / `admin` | Server (8コア) |
 | **Grafana** | `https://grafana.philippines.com.ph` | Keycloak OIDC SSO | `admin` / `admin` | Server (8コア) |

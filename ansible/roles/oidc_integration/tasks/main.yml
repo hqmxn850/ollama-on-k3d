@@ -182,10 +182,14 @@
         SSO Login: Keycloak OIDC (ワンクリックログイン)
         Default Locale: {{ open_webui_default_locale | default('ja-JP') }}
 
-      【Ollama (LLM API)】[Worker]
-        URL: https://{{ ollama_hostname }}
-        Port: {{ ollama_port | default(11434) }}
-        GPU Acceleration: AMD ROCm (GPU) / XDNA (NPU)
+      【Lemonade (Ollama 互換 LLM API)】[Worker]
+        URL: https://{{ lemonade_hostname }}
+        Port: {{ lemonade_port | default(11434) }}
+        GPU Acceleration: AMD ROCm (GPU)
+
+      【FastFlowLM (OpenAI 互換 NPU API)】[Host]
+        Endpoint: http://{{ npu_flm_host_ip }}:{{ npu_flm_port }}/v1
+        GPU Acceleration: AMD XDNA (NPU)
 
       【Keycloak SSO】[Server]
         URL: https://{{ keycloak_hostname }}
