@@ -13,7 +13,7 @@ Podman 環境上で K3D を用い、ホストの CPU リソースを最適分離
   - **Worker ノード**: 24 コア (`8-31`) - AI / LLM 推論基盤 (Ollama, OGA, Open WebUI)
 - **ハードウェアアクセラレーション**:
   - AMD GPU / ROCm パススルー (`/dev/kfd`, `/dev/dri`)
-  - AMD NPU / XDNA パススルー (`/dev/accel`)
+  - AMD NPU / XDNA パススルー (`/dev/accel`) & Turbo モード自動有効化 (最大クロック/性能)
 - **Web UI & 認証**:
   - Open WebUI (Local AI チャットフロントエンド)
   - Keycloak (OIDC 統合認証基盤、ワンクリック SSO)

@@ -230,6 +230,7 @@ EXTRA_VARS=$(jq -n \
   --arg amd_npu_resource_domain "${AMD_NPU_RESOURCE_DOMAIN:-amd.com}" \
   --arg amd_npu_device_name "${AMD_NPU_DEVICE_NAME:-npu}" \
   --argjson amd_npu_device_count "${AMD_NPU_DEVICE_COUNT:-1}" \
+  --arg amd_npu_power_mode "${AMD_NPU_POWER_MODE:-TURBO}" \
   --argjson ollama_enabled "${OLLAMA_ENABLED:-true}" \
   --arg ollama_chart_version "${OLLAMA_CHART_VERSION:-1.84.0}" \
   --arg ollama_hostname "${OLLAMA_HOSTNAME:-ollama.${EMAIL_DOMAIN}}" \
@@ -462,6 +463,7 @@ EXTRA_VARS=$(jq -n \
     amd_npu_resource_domain: $amd_npu_resource_domain,
     amd_npu_device_name: $amd_npu_device_name,
     amd_npu_device_count: $amd_npu_device_count,
+    amd_npu_power_mode: $amd_npu_power_mode,
     ollama_enabled: $ollama_enabled,
     ollama_chart_version: $ollama_chart_version,
     ollama_hostname: $ollama_hostname,
@@ -616,6 +618,41 @@ if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
 else
   ACTUAL_USER="$(whoami)"
   ACTUAL_USER_HOME="${HOME:-/home/$(whoami)}"
+fi
+
+# --- 4.4 AMD XDNA NPU パワーモード設定 (Turbo モード有効化) ---
+if [[ "$CHECK_MODE" == false && "${AMD_NPU_PLUGIN_ENABLED:-true}" == true ]]; then
+  NPU_DEV="${ACCEL_DEVICE_PATH:-/dev/accel}"
+  [[ -d "${NPU_DEV}" ]] && NPU_DEV="${NPU_DEV}/accel0"
+  if [[ -e "${NPU_DEV}" ]]; then
+    TARGET_PM="${AMD_NPU_POWER_MODE:-TURBO}"
+    NPU_SCRIPT="${SCRIPT_DIR}/lib/npu-power-mode.py"
+    if [[ -f "${NPU_SCRIPT}" ]]; then
+      CURR_PM_INFO=$(python3 "${NPU_SCRIPT}" get "${TARGET_PM}" "${NPU_DEV}" 2>/dev/null || true)
+      NEED_SET=true
+      if [[ "${TARGET_PM^^}" == "TURBO" && "${CURR_PM_INFO}" == *"TURBO"* ]] || \
+         [[ "${CURR_PM_INFO}" == *"(${TARGET_PM^^})"* ]] || \
+         [[ "${CURR_PM_INFO}" == *"power_mode=${TARGET_PM}"* ]]; then
+        NEED_SET=false
+      fi
+      if [[ "$NEED_SET" == true ]]; then
+        if pgrep -f "flm serve" >/dev/null 2>&1; then
+          log "NPU パワーモード変更のため、既存の FastFlowLM プロセスを一時停止します..."
+          pkill -f "flm serve" 2>/dev/null || true
+          sleep 1
+        fi
+        log "AMD XDNA NPU パワーモードを設定中 (${TARGET_PM})..."
+        PM_OUT=$(sudo python3 "${NPU_SCRIPT}" set "${TARGET_PM}" "${NPU_DEV}" 2>&1 || true)
+        if [[ $? -eq 0 && "${PM_OUT}" != *"Failed"* ]]; then
+          succ "${PM_OUT}"
+        else
+          warn "NPU パワーモードの設定に失敗しました: ${PM_OUT}"
+        fi
+      else
+        log "AMD XDNA NPU パワーモードは既に設定済みです: ${CURR_PM_INFO}"
+      fi
+    fi
+  fi
 fi
 
 # --- 4.5 AMD XDNA NPU (FastFlowLM) サービスの起動 (有効時) ---

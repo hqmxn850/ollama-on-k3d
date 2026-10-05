@@ -251,6 +251,7 @@ amd_npu_exporter_port: "{{ lookup('env', 'AMD_NPU_EXPORTER_PORT') | default(9105
 amd_npu_exporter_daemonset_name: "amd-npu-exporter"
 amd_npu_exporter_service_name: "amd-npu-exporter"
 amd_npu_exporter_image: "{{ python_image | default('docker.io/library/python:3.12-slim', true) }}"
+amd_npu_power_mode: "{{ lookup('env', 'AMD_NPU_POWER_MODE') | default('TURBO', true) }}"
 
 
 # Ollama LLM / AI サービス設定 (Worker ノード配置)

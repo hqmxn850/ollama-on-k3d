@@ -104,3 +104,19 @@
     - amd_npu_plugin_enabled | default(true) | bool
     - amd_npu_exporter_enabled | default(true) | bool
 
+- name: AMD XDNA NPU パワーモードを設定 (Turbo モード有効化等)
+  ansible.builtin.command: >-
+    python3 {{ playbook_dir }}/../lib/npu-power-mode.py set {{ amd_npu_power_mode | default('TURBO') }} {{ accel_device_path | default('/dev/accel') }}
+  register: npu_pm_result
+  changed_when: "'successfully changed' in npu_pm_result.stdout"
+  failed_when: false
+  when:
+    - amd_npu_plugin_enabled | default(true) | bool
+
+- name: AMD XDNA NPU パワーモード設定結果を表示
+  ansible.builtin.debug:
+    msg: "{{ npu_pm_result.stdout_lines | default(npu_pm_result.stderr_lines | default([])) }}"
+  when:
+    - amd_npu_plugin_enabled | default(true) | bool
+    - npu_pm_result is defined and (npu_pm_result.stdout is defined or npu_pm_result.stderr is defined)
+

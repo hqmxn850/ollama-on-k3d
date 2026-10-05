@@ -77,7 +77,7 @@ if [[ -f "versions.env" ]]; then
   fi
 fi
 
-for pyscript in ansible/roles/monitoring/files/patch-dashboards.py; do
+for pyscript in ansible/roles/monitoring/files/patch-dashboards.py lib/npu-power-mode.py; do
   if [[ -f "$pyscript" ]]; then
     if python3 -m py_compile "$pyscript" 2>/dev/null; then
       pass "Python 構文: $pyscript"
@@ -251,6 +251,22 @@ if [[ -f "${PROJECT_ROOT}/ollama-pull.sh" ]]; then
     pass "ollama-pull.sh: モデル未指定時のエラーハンドリング (--enable-tools)"
   else
     fail "ollama-pull.sh: --enable-tools モデル未指定時ハンドリングに失敗 (出力: $OUTPUT_OP_NOTOOLS)"
+  fi
+fi
+
+if [[ -f "${PROJECT_ROOT}/lib/npu-power-mode.py" ]]; then
+  OUTPUT_NPU_USAGE=$(python3 "${PROJECT_ROOT}/lib/npu-power-mode.py" 2>&1 || true)
+  if echo "$OUTPUT_NPU_USAGE" | grep -q "Usage: npu-power-mode.py"; then
+    pass "npu-power-mode.py: 引数なし時の Usage 正常出力"
+  else
+    fail "npu-power-mode.py: 引数なし時のハンドリングに失敗 (出力: $OUTPUT_NPU_USAGE)"
+  fi
+
+  OUTPUT_NPU_INVALID=$(python3 "${PROJECT_ROOT}/lib/npu-power-mode.py" set INVALID 2>&1 || true)
+  if echo "$OUTPUT_NPU_INVALID" | grep -qi "Invalid power mode"; then
+    pass "npu-power-mode.py: 無効なパワーモード指定時のエラーハンドリング"
+  else
+    fail "npu-power-mode.py: 無効なパワーモード指定時のハンドリングに失敗 (出力: $OUTPUT_NPU_INVALID)"
   fi
 fi
 

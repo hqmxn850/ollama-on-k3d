@@ -12,6 +12,7 @@
   - Server ノードには CORE・SSO・監視基盤を集約し、Worker ノードに AI/LLM ワークロード（Ollama, OGA, Open WebUI）を集中配置。
 - **ハードウェアアクセラレーション対応**:
   - AMD GPU (ROCm: `/dev/kfd`, `/dev/dri`) および AMD NPU (XDNA: `/dev/accel`) をノードコンテナへパススルーし、K8s Device Plugin により透過的に提供。
+  - AMD XDNA NPU の Turbo モード (最大クロック・パフォーマンス) を自動検出・有効化。
 - **軽量・単一インスタンス構成**:
   - Ceph、Harbor、KubeVirt、Backup/Restore を排除し、軽量・シンプルな構成に特化。
   - ストレージは K3s 標準の `local-path` を全面採用。
