@@ -438,6 +438,7 @@
                       for mid in default_model.split(","):
                           mid = mid.strip()
                           if mid:
+                              m_params = {"system": system_prompt} if system_prompt else {}
                               mform = ModelForm(
                                   id=mid,
                                   base_model_id=None,
@@ -447,7 +448,7 @@
                                       capabilities={"tools": True, "web_search": True},
                                       toolIds=all_tool_ids
                                   ),
-                                  params=ModelParams(),
+                                  params=ModelParams(**m_params),
                                   access_grants=[],
                                   is_active=True
                               )

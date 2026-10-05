@@ -313,6 +313,12 @@ PARAMETER stop <|im_start|>
 PARAMETER stop <|im_end|>
 
 EOF
+  if [[ -n "${OPEN_WEBUI_DEFAULT_SYSTEM_PROMPT:-}" ]]; then
+    cat << EOF >> "${local_tmp}"
+SYSTEM """${OPEN_WEBUI_DEFAULT_SYSTEM_PROMPT}"""
+
+EOF
+  fi
   cat << 'EOF' >> "${local_tmp}"
 TEMPLATE """{{- if .Messages }}
 {{- if or .System .Tools }}<|im_start|>system
