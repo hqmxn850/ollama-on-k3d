@@ -297,6 +297,47 @@ extraResources:
                     print(f"Successfully patched Japanese prompt suggestions in {os.path.basename(f)}")
         except Exception as e:
             print(f"Warning: Failed to patch prompt suggestions in entrypoint: {e}")
+
+        # 8. ツールの ON / OFF 状態の localStorage 記憶 & 新規チャットへの自動継承パッチ
+        try:
+            import glob
+            get_tool_ids = 'JSON.parse(localStorage.getItem("selectedToolIds")||"[]")'
+            for f in glob.glob('/app/build/_app/immutable/chunks/*.js'):
+                with open(f, 'r', encoding='utf-8') as fp:
+                    c = fp.read()
+                changed = False
+                if 'let Ht=I([])' in c:
+                    c = c.replace('let Ht=I([])', 'let Ht=I(' + get_tool_ids + ')', 1)
+                    changed = True
+                s_nt = 'set selectedToolIds(Nt)' + chr(123) + 'c(Ht,Nt)' + chr(125)
+                r_nt = 'set selectedToolIds(Nt)' + chr(123) + 'c(Ht,Nt),localStorage.setItem("selectedToolIds",JSON.stringify(Nt))' + chr(125)
+                if s_nt in c:
+                    c = c.replace(s_nt, r_nt)
+                    changed = True
+                s_ft = 'set selectedToolIds(Ft)' + chr(123) + 'c(Ht,Ft)' + chr(125)
+                r_ft = 'set selectedToolIds(Ft)' + chr(123) + 'c(Ht,Ft),localStorage.setItem("selectedToolIds",JSON.stringify(Ft))' + chr(125)
+                if s_ft in c:
+                    c = c.replace(s_ft, r_ft)
+                    changed = True
+                s_mt = 'set selectedToolIds(mt)' + chr(123) + 'c(Ht,mt)' + chr(125)
+                r_mt = 'set selectedToolIds(mt)' + chr(123) + 'c(Ht,mt),localStorage.setItem("selectedToolIds",JSON.stringify(mt))' + chr(125)
+                if s_mt in c:
+                    c = c.replace(s_mt, r_mt)
+                    changed = True
+                if 'c(Sr,[]),c(Ht,[]),c(hr,[])' in c:
+                    c = c.replace('c(Sr,[]),c(Ht,[]),c(hr,[])', 'c(Sr,[]),c(Ht,' + get_tool_ids + '),c(hr,[])')
+                    changed = True
+                s_xo = 'Xo=async()=>' + chr(123) + 'c(Ht,[]),c(hr,[])'
+                r_xo = 'Xo=async()=>' + chr(123) + 'c(Ht,' + get_tool_ids + '),c(hr,[])'
+                if s_xo in c:
+                    c = c.replace(s_xo, r_xo)
+                    changed = True
+                if changed:
+                    with open(f, 'w', encoding='utf-8') as fp:
+                        fp.write(c)
+                    print(f"Successfully patched tool ON/OFF persistence in {os.path.basename(f)}")
+        except Exception as e:
+            print(f"Warning: Failed to patch tool persistence in entrypoint: {e}")
         PYEOF
 
         exec bash /app/backend/start.sh "$@"

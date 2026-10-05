@@ -321,6 +321,38 @@
       except Exception as e:
           print(f"Warning: Failed to patch prompt suggestions: {e}")
 
+      try:
+          import glob
+          get_tool_ids = 'JSON.parse(localStorage.getItem("selectedToolIds")||"[]")'
+          for f in glob.glob('/app/build/_app/immutable/chunks/*.js'):
+              with open(f, 'r', encoding='utf-8') as fp:
+                  c = fp.read()
+              changed = False
+              if 'let Ht=I([])' in c:
+                  c = c.replace('let Ht=I([])', f'let Ht=I({get_tool_ids})', 1)
+                  changed = True
+              if 'set selectedToolIds(Nt){c(Ht,Nt)}' in c:
+                  c = c.replace('set selectedToolIds(Nt){c(Ht,Nt)}', 'set selectedToolIds(Nt){c(Ht,Nt),localStorage.setItem("selectedToolIds",JSON.stringify(Nt))}')
+                  changed = True
+              if 'set selectedToolIds(Ft){c(Ht,Ft)}' in c:
+                  c = c.replace('set selectedToolIds(Ft){c(Ht,Ft)}', 'set selectedToolIds(Ft){c(Ht,Ft),localStorage.setItem("selectedToolIds",JSON.stringify(Ft))}')
+                  changed = True
+              if 'set selectedToolIds(mt){c(Ht,mt)}' in c:
+                  c = c.replace('set selectedToolIds(mt){c(Ht,mt)}', 'set selectedToolIds(mt){c(Ht,mt),localStorage.setItem("selectedToolIds",JSON.stringify(mt))}')
+                  changed = True
+              if 'c(Sr,[]),c(Ht,[]),c(hr,[])' in c:
+                  c = c.replace('c(Sr,[]),c(Ht,[]),c(hr,[])', f'c(Sr,[]),c(Ht,{get_tool_ids}),c(hr,[])')
+                  changed = True
+              if 'Xo=async()=>{c(Ht,[]),c(hr,[])' in c:
+                  c = c.replace('Xo=async()=>{c(Ht,[]),c(hr,[])', f'Xo=async()=>{{c(Ht,{get_tool_ids}),c(hr,[])')
+                  changed = True
+              if changed:
+                  with open(f, 'w', encoding='utf-8') as fp:
+                      fp.write(c)
+                  print(f"Patched tool ON/OFF persistence in {os.path.basename(f)}")
+      except Exception as e:
+          print(f"Warning: Failed to patch tool persistence: {e}")
+
 
       try:
           import glob
