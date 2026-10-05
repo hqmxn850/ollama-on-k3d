@@ -45,8 +45,8 @@ spec:
         app.kubernetes.io/name: lemonade
         app.kubernetes.io/instance: lemonade
       annotations:
-        # バックエンド設定 (llamacpp.backend) 変更時に Pod を再作成して設定を反映する
-        checksum/lemonade-backend: {{ (lemonade_backend | default('rocm')) | hash('sha256') }}
+        # バックエンド設定 (llamacpp.backend)・ctx_size 変更時に Pod を再作成して設定を反映する
+        checksum/lemonade-backend: {{ ((lemonade_backend | default('rocm')) ~ ':' ~ (lemonade_ctx_size | default(8192) | string)) | hash('sha256') }}
     spec:
       nodeSelector:
         node-role.kubernetes.io/worker: "true"
@@ -65,7 +65,7 @@ spec:
               set -e
               mkdir -p /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/.config/lemonade
               chown -R 10001:10001 /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/.config/lemonade
-              printf '%s\n' '{{ {"llamacpp": {"backend": lemonade_backend | default("rocm")}} | to_json }}' > /opt/lemonade/.config/lemonade/config.json
+              printf '%s\n' '{{ {"config_version": 2, "ctx_size": lemonade_ctx_size | default(8192), "llamacpp": {"backend": lemonade_backend | default("rocm")}} | to_json }}' > /opt/lemonade/.config/lemonade/config.json
               chown 10001:10001 /opt/lemonade/.config/lemonade/config.json
           volumeMounts:
             - name: lemonade-data

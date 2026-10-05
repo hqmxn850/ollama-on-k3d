@@ -108,8 +108,10 @@
 | `LEMONADE_STORAGE_CLASS` | モデル保存用 StorageClass | `local-path` |
 | `LEMONADE_CPU_REQUEST` | CPU リクエスト | `500m` |
 | `LEMONADE_MEMORY_REQUEST` | メモリリクエスト | `2Gi` |
-| `LEMONADE_MEMORY_LIMIT` | メモリリミット | `16Gi` |
+| `LEMONADE_MEMORY_LIMIT` | メモリリミット | `48Gi` |
+| `LEMONADE_LIVENESS_FAILURE_THRESHOLD` | liveness プローブ連続失敗閾値 (モデルロード中の誤検知防止) | `40` |
 | `LEMONADE_PROBE_PATH` | 死活監視パス | `/live` |
+| `LEMONADE_CTX_SIZE` | モデル推論コンテキスト長 (auto-tune 無効化・KV メモリ固定) | `8192` |
 | `LEMONADE_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `Qwen3.8-27B-GGUF` |
 | `LEMONADE_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
 | `LEMONADE_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Lemonade 接続リトライ回数 | `30` |

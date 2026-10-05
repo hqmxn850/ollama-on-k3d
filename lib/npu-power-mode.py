@@ -61,6 +61,18 @@ def main():
     mode_arg = sys.argv[2] if len(sys.argv) > 2 else "TURBO"
     dev_path = sys.argv[3] if len(sys.argv) > 3 else os.environ.get("ACCEL_DEVICE_PATH", "/dev/accel")
 
+    # 引数検証はデバイスアクセス前に行う (デバイス未接続・オフライン時でもエラーを確実に出す)
+    if action not in ("get", "set"):
+        print(f"Unknown action: {action}", file=sys.stderr)
+        sys.exit(1)
+
+    target_mode = None
+    if action == "set":
+        target_mode = MODE_MAP.get(str(mode_arg).lower())
+        if target_mode is None:
+            print(f"Invalid power mode: {mode_arg}. Valid values: 0/DEFAULT, 1/LOW, 2/MED, 3/HIGH, 4/TURBO", file=sys.stderr)
+            sys.exit(1)
+
     if os.path.isdir(dev_path):
         dev_path = os.path.join(dev_path, "accel0")
 
@@ -78,7 +90,11 @@ def main():
         sys.exit(1)
 
     try:
-        curr_mode = get_power_mode(fd)
+        try:
+            curr_mode = get_power_mode(fd)
+        except OSError as e:
+            print(f"Failed to query NPU power mode: {e} (device offline or firmware wedged; system reboot may be required)", file=sys.stderr)
+            sys.exit(1)
         curr_name = MODE_NAMES.get(curr_mode, f"UNKNOWN({curr_mode})")
 
         if action == "get":
@@ -86,11 +102,6 @@ def main():
             sys.exit(0)
 
         elif action == "set":
-            target_mode = MODE_MAP.get(str(mode_arg).lower())
-            if target_mode is None:
-                print(f"Invalid power mode: {mode_arg}. Valid values: 0/DEFAULT, 1/LOW, 2/MED, 3/HIGH, 4/TURBO", file=sys.stderr)
-                sys.exit(1)
-
             target_name = MODE_NAMES.get(target_mode, f"UNKNOWN({target_mode})")
             if curr_mode == target_mode:
                 print(f"NPU power mode is already set to {target_name} ({target_mode})")
@@ -107,9 +118,6 @@ def main():
                 else:
                     print(f"Failed to set power mode: {e}", file=sys.stderr)
                 sys.exit(1)
-        else:
-            print(f"Unknown action: {action}", file=sys.stderr)
-            sys.exit(1)
 
     finally:
         os.close(fd)
