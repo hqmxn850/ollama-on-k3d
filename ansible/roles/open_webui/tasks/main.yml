@@ -176,27 +176,38 @@
           from open_webui.models.users import Users
           async def update_users():
               users_data = await Users.get_users()
-              users_list = users_data.get("users", []) if isinstance(users_data, dict) else users_data
+              users_list = users_data.get("users", []) if isinstance(users_data, dict) else (users_data or [])
               for u in users_list:
                   uid = getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
-                  raw_settings = getattr(u, "settings", None) or (u.get("settings") if isinstance(u, dict) else None)
-                  try:
-                      s = json.loads(raw_settings) if isinstance(raw_settings, str) else (raw_settings or {})
-                  except Exception:
-                      s = {}
-                  if not isinstance(s, dict):
-                      s = {}
-                  ui = s.get("ui")
-                  if not isinstance(ui, dict):
-                      ui = {}
-                  ui["locale"] = locale
-                  ui["webSearch"] = "always"
-                  s["ui"] = ui
                   if uid:
-                      await Users.update_user_by_id(uid, {"settings": s})
+                      await Users.update_user_settings_by_id(uid, {"ui": {"locale": locale, "webSearch": "always"}})
           asyncio.run(update_users())
+          print("Updated user settings via ORM")
       except Exception as e:
           print(f"Warning: Failed to update existing user settings via ORM: {e}")
+
+      try:
+          if engine and SessionLocal:
+              with SessionLocal() as session:
+                  users = session.execute(text('SELECT id, settings FROM "user"')).fetchall()
+                  for uid, raw_settings in users:
+                      try:
+                          s = json.loads(raw_settings) if isinstance(raw_settings, str) else (raw_settings or {})
+                      except Exception:
+                          s = {}
+                      if not isinstance(s, dict):
+                          s = {}
+                      ui = s.get("ui")
+                      if not isinstance(ui, dict):
+                          ui = {}
+                      ui["locale"] = locale
+                      ui["webSearch"] = "always"
+                      s["ui"] = ui
+                      session.execute(text('UPDATE "user" SET settings = :s WHERE id = :uid'), {"s": json.dumps(s), "uid": uid})
+                  session.commit()
+                  print("Updated all users in DB session with default locale and settings")
+      except Exception as e:
+          print(f"Warning: Failed to update users via DB session: {e}")
 
       try:
           if os.path.exists("/app/backend/data/webui.db"):
