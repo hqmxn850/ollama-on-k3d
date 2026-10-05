@@ -276,6 +276,7 @@ extraResources:
         (function() {
           try {
             var defaultLocale = {{ open_webui_default_locale | default('ja-JP') | to_json }};
+            var defaultSystemPrompt = {{ open_webui_default_system_prompt | default('') | to_json }};
             var currentLocale = localStorage.getItem('locale');
             // 未設定、または英語 (en-US, en, null, undefined) の場合はデフォルト日本語に同期
             if (!currentLocale || currentLocale === 'en-US' || currentLocale === 'en') {
@@ -285,7 +286,7 @@ extraResources:
               document.documentElement.setAttribute('lang', defaultLocale);
             }
 
-            // ユーザー設定 (settings) の locale & webSearch 同期
+            // ユーザー設定 (settings) の locale & webSearch & system 同期
             var rawSettings = localStorage.getItem('settings');
             var settings = rawSettings ? JSON.parse(rawSettings) : {};
             if (!settings.ui) settings.ui = {};
@@ -296,6 +297,10 @@ extraResources:
             }
             if (settings.ui.webSearch !== 'always') {
               settings.ui.webSearch = 'always';
+              settingsUpdated = true;
+            }
+            if (defaultSystemPrompt && (!settings.system || settings.system.trim() === '')) {
+              settings.system = defaultSystemPrompt;
               settingsUpdated = true;
             }
             if (settingsUpdated) {

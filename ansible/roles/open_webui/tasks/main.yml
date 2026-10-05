@@ -79,7 +79,7 @@
   ansible.builtin.command: >-
     kubectl exec -i -n {{ open_webui_namespace }} statefulset/open-webui -c open-webui --
     sh -c 'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$@"'
-    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}" "{{ open_webui_web_search_bypass_web_loader | default(true) | string }}" "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string }}" "{{ open_webui_google_drive_integration_enabled | default(false) | string }}" "{{ open_webui_google_drive_client_id | default('') }}" "{{ open_webui_google_drive_api_key | default('') }}"
+    sh "{{ open_webui_default_locale | default('ja-JP') }}" "{{ open_webui_web_search_enabled | default(true) | string }}" "{{ open_webui_web_search_engine | default('duckduckgo') }}" "{{ open_webui_web_search_result_count | default(3) }}" "{{ open_webui_web_search_concurrent_requests | default(10) }}" "{{ open_webui_web_search_bypass_web_loader | default(true) | string }}" "{{ open_webui_web_search_bypass_embedding_and_retrieval | default(true) | string }}" "{{ open_webui_google_drive_integration_enabled | default(false) | string }}" "{{ open_webui_google_drive_client_id | default('') }}" "{{ open_webui_google_drive_api_key | default('') }}" "{{ open_webui_default_system_prompt | default('') }}"
   args:
     stdin: |
       import asyncio
@@ -149,6 +149,7 @@
       gdrive_enabled = sys.argv[8] if len(sys.argv) > 8 else "False"
       gdrive_client_id = sys.argv[9] if len(sys.argv) > 9 else ""
       gdrive_api_key = sys.argv[10] if len(sys.argv) > 10 else ""
+      system_prompt = sys.argv[11] if len(sys.argv) > 11 else ""
 
       asyncio.run(Config.upsert({
           "ui.default_locale": locale,
@@ -181,6 +182,12 @@
                   uid = getattr(u, "id", None) or (u.get("id") if isinstance(u, dict) else None)
                   if uid:
                       await Users.update_user_settings_by_id(uid, {"ui": {"locale": locale, "webSearch": "always"}})
+                      if system_prompt:
+                          u_obj = await Users.get_user_by_id(uid)
+                          if u_obj:
+                              curr_settings = dict(u_obj.settings or {}) if not isinstance(u_obj.settings, dict) else dict(u_obj.settings)
+                              curr_settings["system"] = system_prompt
+                              await Users.update_user_by_id(uid, {"settings": curr_settings})
           asyncio.run(update_users())
           print("Updated user settings via ORM")
       except Exception as e:
@@ -203,9 +210,11 @@
                       ui["locale"] = locale
                       ui["webSearch"] = "always"
                       s["ui"] = ui
+                      if system_prompt:
+                          s["system"] = system_prompt
                       session.execute(text('UPDATE "user" SET settings = :s WHERE id = :uid'), {"s": json.dumps(s), "uid": uid})
                   session.commit()
-                  print("Updated all users in DB session with default locale and settings")
+                  print("Updated all users in DB session with default locale, settings and system prompt")
       except Exception as e:
           print(f"Warning: Failed to update users via DB session: {e}")
 
@@ -227,6 +236,8 @@
                   ui["locale"] = locale
                   ui["webSearch"] = "always"
                   s["ui"] = ui
+                  if system_prompt:
+                      s["system"] = system_prompt
                   c.execute("UPDATE user SET settings = ? WHERE id = ?", (json.dumps(s), uid))
               conn.commit()
               conn.close()

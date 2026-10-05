@@ -331,6 +331,11 @@ open_webui_replicas: "{{ lookup('env', 'OPEN_WEBUI_REPLICAS') | default(1, true)
 open_webui_client_id: "{{ lookup('env', 'OPEN_WEBUI_CLIENT_ID') | default('open-webui', true) }}"
 open_webui_client_secret: "{{ lookup('env', 'OPEN_WEBUI_CLIENT_SECRET') | default('open-webui-secret', true) }}"
 open_webui_default_locale: "{{ lookup('env', 'OPEN_WEBUI_DEFAULT_LOCALE') | default('ja-JP', true) }}"
+open_webui_default_system_prompt: >-
+  {{
+    lookup('env', 'OPEN_WEBUI_DEFAULT_SYSTEM_PROMPT') |
+    default('あなたは親切で極めて有能なAIアシスタントです。\n以下のルールを遵守して回答してください：\n1. 回答は常に自然で丁寧かつ正確な日本語で行ってください。\n2. 技術用語や固有名詞（プログラミング言語、CLIコマンド、ライブラリ名など）は無理に翻訳せず、正確な公式表記を保持してください。\n3. ソースコードやコマンドを提示する際は、適切なコードブロック（Markdown）を用いて可読性を高く保ってください。\n4. 不確かな情報や推測に基づく内容は断定せず、確認が必要である旨を明記してください。', true)
+  }}
 open_webui_storage_class: "{{ lookup('env', 'OPEN_WEBUI_STORAGE_CLASS') | default('local-path', true) }}"
 open_webui_storage_size: "{{ lookup('env', 'OPEN_WEBUI_STORAGE_SIZE') | default('30Gi', true) }}"
 open_webui_cpu_request: "{{ lookup('env', 'OPEN_WEBUI_CPU_REQUEST') | default('250m', true) }}"
