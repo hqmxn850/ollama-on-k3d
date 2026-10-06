@@ -1,0 +1,21 @@
+---
+# Service (Ollama 互換 / OpenAI 互換 API + Prometheus メトリクス)
+apiVersion: v1
+kind: Service
+metadata:
+  name: lemonade
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: lemonade
+    app.kubernetes.io/instance: lemonade
+    app.kubernetes.io/managed-by: Helm
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    app.kubernetes.io/name: lemonade
+    app.kubernetes.io/instance: lemonade

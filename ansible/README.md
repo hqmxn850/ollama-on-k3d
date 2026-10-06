@@ -28,7 +28,7 @@ ansible/
     ├── rancher/             # cert-manager & Rancher Manager (i18n 日本語化)
     ├── monitoring/          # kube-prometheus-stack & Grafana (PostgreSQL データソース & ダッシュボード)
     ├── amd_gpu/             # AMD GPU (ROCm) & AMD NPU (XDNA) Device Plugin
-    ├── lemonade/            # Lemonade Server (GPU LLM / Ollama 互換 API) & モデル pull スクリプト
+    ├── lemonade/            # Lemonade Server (ローカル Helm チャート) & モデル pull スクリプト
     ├── open_webui/          # Open WebUI (Local AI Web チャット基盤)
     ├── oidc_integration/   # Keycloak クライアント・マッパー登録、OIDC SSO 統合
     └── cluster_teardown/    # クラスタ停止・残存リソース削除・イメージキャッシュ保存

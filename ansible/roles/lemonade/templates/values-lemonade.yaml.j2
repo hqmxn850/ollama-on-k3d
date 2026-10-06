@@ -1,0 +1,53 @@
+---
+# ==============================================================================
+# Lemonade Server Helm Values
+# Single Source of Truth: config.env / ansible/group_vars/all.yml
+# ==============================================================================
+replicas: {{ lemonade_replicas | default(1) }}
+image: {{ lemonade_image | default('ghcr.io/lemonade-sdk/lemonade-server:latest') | quote }}
+imagePullPolicy: IfNotPresent
+port: {{ lemonade_port | default(11434) }}
+backend: {{ lemonade_backend | default('rocm') | quote }}
+ctxSize: {{ lemonade_ctx_size | default(8192) }}
+
+probe:
+  path: {{ lemonade_probe_path | default('/live') | quote }}
+  liveness:
+    initialDelaySeconds: {{ lemonade_liveness_delay_seconds | default(60) }}
+    periodSeconds: {{ lemonade_liveness_period_seconds | default(15) }}
+    timeoutSeconds: {{ lemonade_liveness_timeout_seconds | default(5) }}
+    failureThreshold: {{ lemonade_liveness_failure_threshold | default(6) }}
+  readiness:
+    initialDelaySeconds: {{ lemonade_readiness_delay_seconds | default(30) }}
+    periodSeconds: {{ lemonade_readiness_period_seconds | default(10) }}
+    timeoutSeconds: {{ lemonade_readiness_timeout_seconds | default(5) }}
+    failureThreshold: {{ lemonade_readiness_failure_threshold | default(3) }}
+
+resources:
+  cpuRequest: {{ lemonade_cpu_request | default('500m') | quote }}
+  memoryRequest: {{ lemonade_memory_request | default('2Gi') | quote }}
+  memoryLimit: {{ lemonade_memory_limit | default('16Gi') | quote }}
+
+gpu:
+  enabled: {{ lemonade_gpu_enabled | default(true) | bool | lower }}
+  resourceDomain: {{ amd_gpu_resource_domain | default('amd.com') | quote }}
+  deviceName: {{ amd_gpu_device_name | default('gpu') | quote }}
+  number: {{ lemonade_gpu_number | default(1) }}
+
+storage:
+  class: {{ lemonade_storage_class | default('local-path') | quote }}
+  size: {{ lemonade_storage_size | default('30Gi') | quote }}
+
+ingress:
+  enabled: true
+  host: {{ lemonade_hostname | quote }}
+  clusterIssuer: {{ cluster_issuer_name | default('internal-ca-issuer') | quote }}
+
+networkPolicy:
+  enabled: {{ enable_network_policy | default(true) | bool | lower }}
+  kubeSystemNamespace: {{ kube_system_namespace | default('kube-system') | quote }}
+  openWebuiNamespace: {{ open_webui_namespace | default('open-webui') | quote }}
+  monitoringNamespace: {{ monitoring_namespace | default('cattle-monitoring-system') | quote }}
+  podmanNetworkCidr: {{ podman_network_cidr | default('10.89.0.0/24') | quote }}
+  httpPort: {{ http_port | default(80) }}
+  httpsPort: {{ https_port | default(443) }}

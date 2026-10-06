@@ -1,0 +1,6 @@
+apiVersion: v2
+name: lemonade
+description: Lemonade Server (GPU LLM / Ollama compatible API) for local k3d AI cluster
+type: application
+version: 0.1.0
+appVersion: "latest"

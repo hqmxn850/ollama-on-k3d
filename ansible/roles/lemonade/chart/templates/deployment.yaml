@@ -1,0 +1,113 @@
+---
+# Deployment (Ollama 互換 API + OpenAI 互換 API / AMD GPU ROCm 推論)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lemonade
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: lemonade
+    app.kubernetes.io/instance: lemonade
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: {{ .Values.replicas }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: lemonade
+      app.kubernetes.io/instance: lemonade
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: lemonade
+        app.kubernetes.io/instance: lemonade
+      annotations:
+        # バックエンド設定 (llamacpp.backend)・ctx_size 変更時に Pod を再作成して設定を反映する
+        checksum/lemonade-backend: {{ printf "%s:%v" .Values.backend .Values.ctxSize | sha256sum }}
+    spec:
+      nodeSelector:
+        node-role.kubernetes.io/worker: "true"
+      initContainers:
+        # local-path PVC (root 所有) の所有権を非 root 実行ユーザーへ移し、
+        # バックエンド設定 config.json を書き出してから本体を起動する
+        - name: lemonade-init
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              mkdir -p /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/.config/lemonade
+              chown -R 10001:10001 /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/.config/lemonade
+              printf '%s\n' {{ dict "config_version" 2 "ctx_size" (int .Values.ctxSize) "llamacpp" (dict "backend" .Values.backend) | toJson | quote }} > /opt/lemonade/.config/lemonade/config.json
+              chown 10001:10001 /opt/lemonade/.config/lemonade/config.json
+          volumeMounts:
+            - name: lemonade-data
+              mountPath: /opt/lemonade/.cache
+              subPath: cache
+            - name: lemonade-data
+              mountPath: /opt/lemonade/llama
+              subPath: llama
+            - name: lemonade-data
+              mountPath: /opt/lemonade/.config/lemonade
+              subPath: config
+      containers:
+        - name: lemonade
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: {{ .Values.imagePullPolicy }}
+          command: ["/opt/lemonade/lemond"]
+          args:
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - {{ .Values.port | quote }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+              protocol: TCP
+          resources:
+            requests:
+              cpu: {{ .Values.resources.cpuRequest | quote }}
+              memory: {{ .Values.resources.memoryRequest | quote }}
+              {{- if .Values.gpu.enabled }}
+              {{ .Values.gpu.resourceDomain }}/{{ .Values.gpu.deviceName }}: {{ .Values.gpu.number }}
+              {{- end }}
+            limits:
+              memory: {{ .Values.resources.memoryLimit | quote }}
+              {{- if .Values.gpu.enabled }}
+              {{ .Values.gpu.resourceDomain }}/{{ .Values.gpu.deviceName }}: {{ .Values.gpu.number }}
+              {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probe.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.probe.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probe.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probe.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probe.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probe.path | quote }}
+              port: http
+            initialDelaySeconds: {{ .Values.probe.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probe.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probe.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probe.readiness.failureThreshold }}
+          volumeMounts:
+            - name: lemonade-data
+              mountPath: /opt/lemonade/.cache
+              subPath: cache
+            - name: lemonade-data
+              mountPath: /opt/lemonade/llama
+              subPath: llama
+            - name: lemonade-data
+              mountPath: /opt/lemonade/.config/lemonade
+              subPath: config
+      volumes:
+        - name: lemonade-data
+          persistentVolumeClaim:
+            claimName: lemonade-data

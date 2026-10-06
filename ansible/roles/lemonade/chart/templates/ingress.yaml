@@ -1,0 +1,33 @@
+{{- if .Values.ingress.enabled }}
+---
+# Ingress (公開 Ollama 互換 API / Traefik + cert-manager)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: lemonade
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: lemonade
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    cert-manager.io/cluster-issuer: {{ .Values.ingress.clusterIssuer | quote }}
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: traefik
+  tls:
+    - secretName: lemonade-tls
+      hosts:
+        - {{ .Values.ingress.host }}
+  rules:
+    - host: {{ .Values.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: lemonade
+                port:
+                  number: {{ .Values.port }}
+{{- end }}

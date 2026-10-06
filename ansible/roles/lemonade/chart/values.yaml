@@ -1,0 +1,53 @@
+# ==============================================================================
+# Lemonade Server Helm Chart Values (defaults)
+# 実運用値は config.env / ansible/group_vars/all.yml を SSOT として
+# templates/values-lemonade.yaml.j2 から上書きされる。
+# ==============================================================================
+replicas: 1
+image: ghcr.io/lemonade-sdk/lemonade-server:latest
+imagePullPolicy: IfNotPresent
+port: 11434
+backend: rocm
+ctxSize: 8192
+
+probe:
+  path: /live
+  liveness:
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 6
+  readiness:
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+resources:
+  cpuRequest: 500m
+  memoryRequest: 2Gi
+  memoryLimit: 16Gi
+
+gpu:
+  enabled: true
+  resourceDomain: amd.com
+  deviceName: gpu
+  number: 1
+
+storage:
+  class: local-path
+  size: 30Gi
+
+ingress:
+  enabled: true
+  host: lemonade.local
+  clusterIssuer: internal-ca-issuer
+
+networkPolicy:
+  enabled: true
+  kubeSystemNamespace: kube-system
+  openWebuiNamespace: open-webui
+  monitoringNamespace: cattle-monitoring-system
+  podmanNetworkCidr: 10.89.0.0/24
+  httpPort: 80
+  httpsPort: 443

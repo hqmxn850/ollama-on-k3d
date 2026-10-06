@@ -1,0 +1,18 @@
+---
+# PVC (モデル / キャッシュ永続ストレージ)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: lemonade-data
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: lemonade
+    app.kubernetes.io/instance: lemonade
+    app.kubernetes.io/managed-by: Helm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: {{ .Values.storage.class | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.size | quote }}

@@ -4,22 +4,11 @@
 #
 # AMD GPU (ROCm) を用いた Lemonade Server を Worker ノードにデプロイし、
 # Ollama 互換 API (/api/*) と OpenAI 互換 API (/api/v1) を提供する。
-# 旧 Ollama / OGA ロールの後継として、既存リソースがあれば削除してから
-# Lemonade 専用の PVC / Deployment / Service / Ingress を冪等に適用する。
+# ローカル Helm チャート ({{ role_path }}/chart) に対して、Single Source of
+# Truth (config.env / ansible/group_vars/all.yml) の値を jinja レンダリングした
+# values (templates/values-lemonade.yaml.j2) を渡し、helm upgrade --install
+# で冪等にデプロイする。
 # ==============================================================================
-
-- name: 旧 Ollama / OGA リソースを削除 (Lemonade への移行掃除)
-  ansible.builtin.shell: |
-    helm uninstall {{ legacy_component }} -n {{ legacy_component }} --ignore-not-found >/dev/null 2>&1 || true
-    kubectl delete namespace {{ legacy_component }} --ignore-not-found --wait=false >/dev/null 2>&1 || true
-  loop:
-    - ollama
-    - oga
-  loop_control:
-    loop_var: legacy_component
-  register: legacy_cleanup
-  changed_when: false
-  failed_when: false
 
 - name: Lemonade 名前空間を作成
   ansible.builtin.command: "kubectl create namespace {{ lemonade_namespace }}"
@@ -27,20 +16,31 @@
   changed_when: "'created' in create_lemonade_ns.stdout"
   failed_when: false
 
-- name: Lemonade NetworkPolicy を適用
-  ansible.builtin.command: "kubectl apply -f -"
-  args:
-    stdin: "{{ lookup('template', 'lemonade-networkpolicy.yaml.j2') }}"
-  register: apply_lemonade_netpol
-  changed_when: "'created' in apply_lemonade_netpol.stdout or 'configured' in apply_lemonade_netpol.stdout"
-  when: enable_network_policy | default(true) | bool
+# kubectl apply で作成された既存リソースを Helm release (lemonade) へ引き継ぐ。
+# メタデータのみの冪等パッチのため Pod は再作成されない。
+- name: 既存 kubectl 管理リソースを Helm 管理へ adoption (kubectl → Helm 移行用・冪等)
+  ansible.builtin.shell: |
+    NS={{ lemonade_namespace }}
+    for res in pvc/lemonade-data deployment/lemonade service/lemonade ingress/lemonade networkpolicy/lemonade-app-protection; do
+      if kubectl get "$res" -n "$NS" >/dev/null 2>&1; then
+        kubectl label "$res" -n "$NS" app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
+        kubectl annotate "$res" -n "$NS" \
+          meta.helm.sh/release-name=lemonade \
+          meta.helm.sh/release-namespace="$NS" --overwrite >/dev/null
+      fi
+    done
+  changed_when: false
 
-- name: Lemonade マニフェスト (PVC, Deployment, Service, Ingress) を適用
-  ansible.builtin.command: "kubectl apply -f -"
+- name: Lemonade を Helm でデプロイ (ローカルチャート)
+  ansible.builtin.command: >
+    helm upgrade --install lemonade {{ role_path }}/chart
+    --namespace {{ lemonade_namespace }}
+    --force-conflicts
+    -f -
   args:
-    stdin: "{{ lookup('template', 'lemonade-manifests.yaml.j2') }}"
-  register: apply_lemonade_manifests
-  changed_when: "'created' in apply_lemonade_manifests.stdout or 'configured' in apply_lemonade_manifests.stdout"
+    stdin: "{{ lookup('template', 'values-lemonade.yaml.j2') }}"
+  register: install_lemonade
+  changed_when: '''Release "lemonade" does not exist'' in install_lemonade.stdout or ''has been upgraded'' in install_lemonade.stdout'
 
 - name: Lemonade Deployment のロールアウト完了を待機
   ansible.builtin.command: >-

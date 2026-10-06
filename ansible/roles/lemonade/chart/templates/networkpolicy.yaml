@@ -1,3 +1,4 @@
+{{- if .Values.networkPolicy.enabled }}
 ---
 # ==========================================================
 # Application Plane Protection NetworkPolicy: Lemonade (lemonade)
@@ -6,7 +7,10 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: lemonade-app-protection
-  namespace: {{ lemonade_namespace | default('lemonade') }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: lemonade
+    app.kubernetes.io/managed-by: Helm
 spec:
   podSelector: {}
   policyTypes:
@@ -21,41 +25,41 @@ spec:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ kube_system_namespace | default('kube-system') }}
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.kubeSystemNamespace }}
           podSelector:
             matchLabels:
               app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
-          port: {{ lemonade_port | default(11434) }}
+          port: {{ .Values.port }}
 
     # 3. Open WebUI 名前空間からの推論 API アクセス
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ open_webui_namespace | default('open-webui') }}
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.openWebuiNamespace }}
       ports:
         - protocol: TCP
-          port: {{ lemonade_port | default(11434) }}
+          port: {{ .Values.port }}
 
     # 4. Prometheus 監視基盤からのメトリクススクレイプ許可 (/metrics)
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ monitoring_namespace | default('cattle-monitoring-system') }}
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.monitoringNamespace }}
           podSelector:
             matchLabels:
               app.kubernetes.io/name: prometheus
       ports:
         - protocol: TCP
-          port: {{ lemonade_port | default(11434) }}
+          port: {{ .Values.port }}
 
   egress:
     # 1. DNS 名前解決 (CoreDNS)
     - to:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: {{ kube_system_namespace | default('kube-system') }}
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.kubeSystemNamespace }}
           podSelector:
             matchLabels:
               k8s-app: kube-dns
@@ -74,9 +78,10 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
             except:
-              - {{ podman_network_cidr | default('10.89.0.0/24') }}
+              - {{ .Values.networkPolicy.podmanNetworkCidr }}
       ports:
         - protocol: TCP
-          port: {{ http_port | default(80) }}
+          port: {{ .Values.networkPolicy.httpPort }}
         - protocol: TCP
-          port: {{ https_port | default(443) }}
+          port: {{ .Values.networkPolicy.httpsPort }}
+{{- end }}
