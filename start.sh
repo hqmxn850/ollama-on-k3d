@@ -912,10 +912,15 @@ if [[ "$CHECK_MODE" == false && "${LEMONADE_ENABLED:-true}" == true \
         kubectl -n "${OWUI_NAMESPACE}" cp "${SCRIPT_DIR}/ansible/roles/open_webui/files/functions/." "${OWUI_POD}:/app/backend/data/custom_functions/" || true
         kubectl -n "${OWUI_NAMESPACE}" cp "${SCRIPT_DIR}/ansible/roles/open_webui/files/tools/." "${OWUI_POD}:/app/backend/data/custom_tools/" || true
 
+        OWUI_NPU_MODEL=""
+        if [[ "${NPU_FLM_ENABLED:-true}" == true ]]; then
+          OWUI_NPU_MODEL="${NPU_FLM_DEFAULT_MODEL:-gemma4-it:e4b}"
+        fi
+
         log "Open WebUI の標準設定 (モデル / ロケール / Web検索 / Functions / Tools) を更新中 (pod: ${OWUI_POD}, model: ${REGISTERED_MODEL:-なし}, locale: ${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}, search: ${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo})..."
         if kubectl -n "${OWUI_NAMESPACE}" exec -i "${OWUI_POD}" -- sh -c \
           'cd /app/backend && WEBUI_SECRET_KEY="${WEBUI_SECRET_KEY:-open-webui-config-setup}" python3 - "$@"' \
-          sh "${REGISTERED_MODEL}" "${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}" "${OPEN_WEBUI_WEB_SEARCH_ENABLED:-true}" "${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo}" "${OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT:-3}" "${OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS:-10}" <<'PYEOF'
+          sh "${REGISTERED_MODEL}" "${OPEN_WEBUI_DEFAULT_LOCALE:-ja-JP}" "${OPEN_WEBUI_WEB_SEARCH_ENABLED:-true}" "${OPEN_WEBUI_WEB_SEARCH_ENGINE:-duckduckgo}" "${OPEN_WEBUI_WEB_SEARCH_RESULT_COUNT:-3}" "${OPEN_WEBUI_WEB_SEARCH_CONCURRENT_REQUESTS:-10}" "${OWUI_NPU_MODEL}" <<'PYEOF'
 import asyncio
 import json
 import sqlite3
@@ -935,6 +940,7 @@ try:
     web_search_concurrent = int(sys.argv[6]) if len(sys.argv) > 6 else 10
 except Exception:
     web_search_concurrent = 10
+npu_model = sys.argv[7] if len(sys.argv) > 7 else ""
 
 updates = {
     "ui.default_locale": locale,
@@ -949,7 +955,10 @@ updates = {
 }
 if model_id:
     updates["ui.default_models"] = model_id
-    updates["ui.default_pinned_models"] = model_id
+    pinned_list = [model_id]
+    if npu_model and npu_model != model_id:
+        pinned_list.append(npu_model)
+    updates["ui.default_pinned_models"] = ",".join(pinned_list)
 
 asyncio.run(Config.upsert(updates))
 

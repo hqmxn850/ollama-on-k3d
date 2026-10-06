@@ -112,7 +112,7 @@
 | `LEMONADE_LIVENESS_FAILURE_THRESHOLD` | liveness プローブ連続失敗閾値 (モデルロード中の誤検知防止) | `40` |
 | `LEMONADE_PROBE_PATH` | 死活監視パス | `/live` |
 | `LEMONADE_CTX_SIZE` | モデル推論コンテキスト長 (auto-tune 無効化・KV メモリ固定) | `8192` |
-| `LEMONADE_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `Qwen3.8-27B-GGUF` |
+| `LEMONADE_DEFAULT_MODEL` | 標準 LLM モデル (start.sh が自動登録し Open WebUI 標準モデルに設定) | `Gemma-4-E4B-it-GGUF` |
 | `LEMONADE_DEFAULT_MODEL_AUTO_SETUP` | 標準 LLM モデルの自動登録・設定の有効化 | `true` |
 | `LEMONADE_DEFAULT_MODEL_SETUP_RETRIES` | 標準 LLM モデル登録前の Lemonade 接続リトライ回数 | `30` |
 | `LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
@@ -165,7 +165,7 @@
    - 各 Helm values / Deployment において `nodeSelector` を設定し、意図せぬノード間混在を防止する。
 3. **モデル管理**:
    - `./lemonade-pull.sh pull <モデル名>` により、稼働中の Lemonade Pod 内へ直接モデルをダウンロード・永続化可能 (`--list` で一覧、`rm` で削除)。
-   - `start.sh` はデプロイ末尾 (セクション 11) で `LEMONADE_DEFAULT_MODEL` が Lemonade に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`LEMONADE_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。
+   - `start.sh` はデプロイ末尾 (セクション 11) で `LEMONADE_DEFAULT_MODEL` が Lemonade に未登録の場合に自動 pull し、登録後のモデル名で Open WebUI の標準モデル (`ui.default_models` / `ui.default_pinned_models`) を DB に設定する (管理者 API が使えないため直接更新)。`LEMONADE_DEFAULT_MODEL_AUTO_SETUP=false` で無効化可能。`ui.default_pinned_models` には NPU 標準モデル (`NPU_FLM_DEFAULT_MODEL`) も併せて固定表示される。
 4. **UI 日本語化**:
    - Open WebUI は `DEFAULT_LOCALE` / `DEFAULT_INTERFACE_SETTINGS` 環境変数、`loader.js` によるフロントエンドロケール自動設定、および DB 内の `ui.default_locale` / `ui.default_interface_settings` / 既存ユーザー設定同期により、新規アクセス時および全ユーザーにおいて `OPEN_WEBUI_DEFAULT_LOCALE` (デフォルト: `ja-JP`) で統一される。
 5. **AMD XDNA NPU (FastFlowLM) 連携 & Turbo モード**:

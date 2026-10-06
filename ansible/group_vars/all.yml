@@ -279,7 +279,7 @@ lemonade_readiness_delay_seconds: "{{ lookup('env', 'LEMONADE_READINESS_DELAY_SE
 lemonade_readiness_timeout_seconds: "{{ lookup('env', 'LEMONADE_READINESS_TIMEOUT_SECONDS') | default(5, true) | int }}"
 lemonade_readiness_failure_threshold: "{{ lookup('env', 'LEMONADE_READINESS_FAILURE_THRESHOLD') | default(3, true) | int }}"
 lemonade_readiness_period_seconds: "{{ lookup('env', 'LEMONADE_READINESS_PERIOD_SECONDS') | default(10, true) | int }}"
-lemonade_default_model: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL') | default('Qwen3.8-27B-GGUF', true) }}"
+lemonade_default_model: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL') | default('Gemma-4-E4B-it-GGUF', true) }}"
 lemonade_default_model_auto_setup: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_AUTO_SETUP') | default(true, true) | bool }}"
 lemonade_default_model_setup_retries: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_SETUP_RETRIES') | default(30, true) | int }}"
 lemonade_default_model_setup_retry_interval: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL') | default(2, true) | int }}"
