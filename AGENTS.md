@@ -177,5 +177,9 @@
    - Open WebUI には DuckDuckGo を用いたインターネット Web 検索機能が統合されており、2 つの方法でリアルタイム検索・回答が可能：
      1. **RAG 検索 (地球儀アイコン 🌐)**: チャット入力欄の地球儀アイコンをクリックして ON にすると、最新の検索結果をコンテキストとして自動取得しプロンプトに注入する。
      2. **自律型 Tool Calling (Web Search ツール)**: Workspace > Tools に登録された `web_search` ツール (DuckDuckGo 検索) をチャット入力欄の「＋」アイコンから選択することで、LLM が Function Calling により自律的にキーワード検索を発行・要約回答できる。`start.sh` および Ansible ロール (`open_webui`) により自動的に DB 登録・更新される。
-
+7. **Lemonade の Helm デプロイ & Generation Throughput**:
+   - Lemonade はローカル Helm チャート (`ansible/roles/lemonade/chart`) を用いて `helm upgrade --install` でデプロイされる。values は `templates/values-lemonade.yaml.j2` が `config.env` / `group_vars/all.yml` (SSOT) から jinja レンダリングして供給し、既存の kubectl 管理リソースは adoption タスク (`meta.helm.sh/release-name` 等の付与) で Helm release へ引き継がれる。
+   - 生成スループット (tokens/sec) は `rate(lemonade_output_tokens_total[1m])` (生成) / `rate(lemonade_prompt_tokens_total[1m])` (prefill) で取得する。非ストリーミングの `/api/generate` はメトリクス未計上のため、ストリーミング API 経由の利用時のみ加算される。
+   - Grafana ダッシュボード `AI / LLM Inference (Lemonade & FastFlowLM)` (`grafana-dashboard-ai` ConfigMap) に Throughput / ROCm (amdgpu 温度・SCLK) / Hybrid 判定パネルを備える (FastFlowLM は `/metrics` 非提供のため案内テキストパネルで明示)。
+   - ハイブリッド実行 (NPU prefill + GPU decode) は AMD OGA の **Windows のみ対応**機能のため、本 Linux 環境の Lemonade は llama.cpp (ROCm) の **GPU 単体**で動作する (NPU は FastFlowLM が単体利用)。
 

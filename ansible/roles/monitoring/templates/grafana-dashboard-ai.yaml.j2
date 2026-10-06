@@ -456,34 +456,9 @@ data:
                   }
                 ]
               },
-              "unit": "bytes"
+              "unit": "tokens/s"
             },
-            "overrides": [
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Model"
-                },
-                "properties": [
-                  {
-                    "id": "custom.width",
-                    "value": 300
-                  }
-                ]
-              },
-              {
-                "matcher": {
-                  "id": "byName",
-                  "options": "Disk Size"
-                },
-                "properties": [
-                  {
-                    "id": "unit",
-                    "value": "bytes"
-                  }
-                ]
-              }
-            ]
+            "overrides": []
           },
           "gridPos": {
             "h": 6,
@@ -526,19 +501,8 @@ data:
                   "pod": true,
                   "service": true
                 },
-                "indexByName": {
-                  "model": 0,
-                  "family": 1,
-                  "parameter_size": 2,
-                  "quantization": 3,
-                  "Value": 4
-                },
                 "renameByName": {
-                  "Value": "Disk Size",
-                  "family": "Architecture",
-                  "model": "Model",
-                  "parameter_size": "Parameters",
-                  "quantization": "Quantization"
+                  "Value": "Tokens/sec (1m avg)"
                 }
               }
             }
@@ -549,7 +513,7 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "lemonade_model_tokens_per_second",
+              "expr": "sum(rate(lemonade_output_tokens_total[1m])) or vector(0)",
               "format": "table",
               "instant": true,
               "refId": "A"
@@ -831,9 +795,18 @@ data:
                 "type": "prometheus",
                 "uid": "prometheus"
               },
-              "expr": "sum(rate(lemonade_output_tokens_total[2m])) or vector(0)",
+              "expr": "sum(rate(lemonade_output_tokens_total[1m])) or vector(0)",
               "legendFormat": "Tokens Generated (tokens/s)",
               "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(lemonade_prompt_tokens_total[1m])) or vector(0)",
+              "legendFormat": "Prompt Prefill (tokens/s)",
+              "refId": "B"
             }
           ]
         },
@@ -1464,6 +1437,316 @@ data:
               "expr": "amd_npu_command_errors_total{device=\"accel0\"}",
               "legendFormat": "Errors Total",
               "refId": "C"
+            }
+          ]
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 48
+          },
+          "id": 510,
+          "title": "FastFlowLM / ROCm / Hybrid Execution Status",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "grafana",
+            "uid": "-- Grafana --"
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 0,
+            "y": 49
+          },
+          "id": 501,
+          "options": {
+            "code": {
+              "language": "plaintext",
+              "showLineNumbers": false,
+              "showMiniMap": false
+            },
+            "content": "### FastFlowLM (AMD XDNA NPU / OpenAI 互換 API)\n- **API Base**: `http://{% endraw %}{{ npu_flm_host_ip | default('10.89.0.1') }}{% raw %}:{% endraw %}{{ npu_flm_port | default(52625) }}{% raw %}/v1` — Prometheus `/metrics` 非提供 (404) のためメトリクス取得不可\n- **ヘルスチェック**: [/v1/models](http://{% endraw %}{{ npu_flm_host_ip | default('10.89.0.1') }}{% raw %}:{% endraw %}{{ npu_flm_port | default(52625) }}{% raw %}/v1/models)\n- **標準モデル**: {% endraw %}{{ npu_flm_default_model | default('gemma4-it:e4b') }}{% raw %}\n\n### ハイブリッド実行モード (NPU prefill + GPU decode)\n- AMD のハイブリッド (OGA) は **Windows のみ対応**。本環境 (Linux + llama.cpp / ROCm) では **Lemonade は GPU 単体 (非ハイブリッド)**\n- 「Hybrid 判定」パネル: Lemonade 生成中 (GPU tokens/s > 0) に NPU コマンド提出率も > 0 なら NPU 割当中\n- FastFlowLM は NPU 単体 (prefill/decode とも NPU) で Lemonade とは独立に稼働",
+            "mode": "markdown"
+          },
+          "title": "FastFlowLM & ハイブリッド実行モード案内",
+          "type": "text"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "rate",
+                "axisPlacement": "auto",
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "spanNulls": false
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 12,
+            "x": 12,
+            "y": 49
+          },
+          "id": 502,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "title": "Hybrid 判定: Lemonade GPU 生成 vs NPU コマンド提出",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(lemonade_output_tokens_total[1m])) or vector(0)",
+              "legendFormat": "Lemonade 生成 (tokens/s)",
+              "refId": "A"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "sum(rate(amd_npu_command_submissions_total[1m])) or vector(0)",
+              "legendFormat": "NPU 提出/s (FastFlowLM / hybrid)",
+              "refId": "B"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "Temp",
+                "axisPlacement": "auto",
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "spanNulls": false
+              },
+              "unit": "tempc"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 0,
+            "y": 55
+          },
+          "id": 503,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "title": "ROCm GPU 温度 (amdgpu)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "node_hwmon_temp_celsius{sensor=\"temp1\"} and on(instance,chip) node_hwmon_chip_names{chip_name=\"amdgpu\"}",
+              "legendFormat": "GPU Temp",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "MHz",
+                "axisPlacement": "auto",
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "spanNulls": false
+              },
+              "unit": "MHz"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 6,
+            "y": 55
+          },
+          "id": 504,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "title": "ROCm GPU クロック SCLK (amdgpu)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "node_hwmon_freq_freq_mhz{sensor=\"sclk\"} and on(instance,chip) node_hwmon_chip_names{chip_name=\"amdgpu\"}",
+              "legendFormat": "GPU SCLK",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "%",
+                "axisPlacement": "auto",
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "spanNulls": false
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 12,
+            "y": 55
+          },
+          "id": 505,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "title": "Lemonade GPU 使用率 (%)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "lemonade_gpu_usage_percent or vector(0)",
+              "legendFormat": "GPU Usage",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "GB",
+                "axisPlacement": "auto",
+                "fillOpacity": 15,
+                "lineWidth": 2,
+                "spanNulls": false
+              },
+              "unit": "GB"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 6,
+            "x": 18,
+            "y": 55
+          },
+          "id": 506,
+          "options": {
+            "legend": {
+              "displayMode": "table",
+              "placement": "bottom"
+            },
+            "tooltip": {
+              "mode": "multi"
+            }
+          },
+          "title": "Lemonade VRAM 使用量 (GB)",
+          "type": "timeseries",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "prometheus"
+              },
+              "expr": "lemonade_vram_used_gb or vector(0)",
+              "legendFormat": "VRAM",
+              "refId": "A"
             }
           ]
         }
