@@ -26,25 +26,28 @@ spec:
         # バックエンド設定 (llamacpp.backend)・ctx_size 変更時に Pod を再作成して設定を反映する
         checksum/lemonade-backend: {{ printf "%s:%v" .Values.backend .Values.ctxSize | sha256sum }}
     spec:
+      # local-path PVC のグループ所有権を kubelet が pod 起動時に一括付与する
+      # (初回のみ再帰適用、以降は root 差分チェックのみで高速。initContainer の都度 chown を不要化)
+      securityContext:
+        fsGroup: {{ .Values.securityContext.fsGroup }}
+        fsGroupChangePolicy: {{ .Values.securityContext.fsGroupChangePolicy }}
       nodeSelector:
         node-role.kubernetes.io/worker: "true"
       initContainers:
-        # local-path PVC (root 所有) の所有権を非 root 実行ユーザーへ移し、
         # バックエンド設定 config.json を書き出してから本体を起動する
+        # (所有権は pod 級 fsGroup が担うため root 実行・chown は不要)
         - name: lemonade-init
           image: {{ .Values.image | quote }}
           imagePullPolicy: {{ .Values.imagePullPolicy }}
           securityContext:
-            runAsUser: 0
-            runAsGroup: 0
+            runAsUser: {{ .Values.securityContext.runAsUser }}
+            runAsGroup: {{ .Values.securityContext.runAsGroup }}
           command: ["/bin/sh", "-c"]
           args:
             - |
               set -e
               mkdir -p /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/.config/lemonade
-              chown -R 10001:10001 /opt/lemonade/.cache/lemonade /opt/lemonade/llama /opt/lemonade/.config/lemonade
               printf '%s\n' {{ dict "config_version" 2 "ctx_size" (int .Values.ctxSize) "llamacpp" (dict "backend" .Values.backend) | toJson | quote }} > /opt/lemonade/.config/lemonade/config.json
-              chown 10001:10001 /opt/lemonade/.config/lemonade/config.json
           volumeMounts:
             - name: lemonade-data
               mountPath: /opt/lemonade/.cache

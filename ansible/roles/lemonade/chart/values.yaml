@@ -11,6 +11,15 @@ port: 11434
 backend: rocm
 ctxSize: 8192
 
+# Pod / initContainer のセキュリティコンテキスト
+# local-path PVC の所有権は pod 級 fsGroup により kubelet が一括付与する
+# (初回のみ再帰適用・以降は root 差分チェックのみ。initContainer の都度 chown を不要にする)
+securityContext:
+  fsGroup: 10001
+  fsGroupChangePolicy: OnRootMismatch
+  runAsUser: 10001
+  runAsGroup: 10001
+
 # クラスタ内 Service 名 (Service FQDN = service.name.<Namespace>.svc.cluster.local)
 service:
   name: lemonade
