@@ -429,20 +429,88 @@ fi
 # ==============================================================================
 # 3. コンテナイメージ確認 & アップグレード
 # ==============================================================================
+
+# レジストリから最新イメージタグを検索する
+#   - ghcr.io: anonymous token + Registry API v2 / Docker Hub: Tags API
+#   - プレリリーズ・moving tag (latest / main / dev 等) を除外
+#   - 取得失敗時は空文字を返す (呼び出し側で Skipped 扱い)
+get_latest_image_tag() {
+  local img="$1" base registry repo tags_json="" token="" tags_raw
+  local page_url page_body page=0 last_tag page_count
+  base="${img%%:*}"    # タグ除去 (レジストリにポートなし前提)
+  registry="${base%%/*}"
+  case "$registry" in
+    ghcr.io)
+      repo="${base#ghcr.io/}"
+      token=$(curl -fsS --connect-timeout 10 --max-time 30 \
+        "https://ghcr.io/token?service=ghcr.io&scope=repository:${repo}:pull" 2>/dev/null \
+        | jq -r '.token // empty' 2>/dev/null || true)
+      if [[ -n "$token" ]]; then
+        # GHCR は既定で100件しか返さないため n=1000 とし、
+        # 最後のタグ (配列末尾) を起点に last パラメータで全件を逐次取得する
+        # (リンク先 URL が ?last=<末尾タグ>&n=1000 形式であることを確認済み。
+        #  コミット毎タグを持つリポジトリは 4 万件超・42 ページ等になるため
+        #  上限は 100 ページ = 最大 10 万タグまで許容する)
+        page_url="https://ghcr.io/v2/${repo}/tags/list?n=1000"
+        while [[ -n "$page_url" && $page -lt 100 ]]; do
+          page=$((page + 1))
+          page_body=$(curl -fsS --connect-timeout 10 --max-time 30 \
+            -H "Authorization: Bearer ${token}" "$page_url" 2>/dev/null) || break
+          tags_json+="${page_body}"$'\n'
+          last_tag=$(printf '%s' "$page_body" | jq -r '.tags[-1] // empty' 2>/dev/null || true)
+          page_count=$(printf '%s' "$page_body" | jq -r '(.tags // []) | length' 2>/dev/null || echo 0)
+          if [[ -n "$last_tag" && "$page_count" -ge 1000 ]]; then
+            page_url="https://ghcr.io/v2/${repo}/tags/list?n=1000&last=${last_tag}"
+          else
+            page_url=""
+          fi
+        done
+      fi
+      ;;
+    docker.io|registry-1.docker.io)
+      repo="${base#docker.io/}"
+      repo="${repo#registry-1.docker.io/}"
+      tags_json=$(curl -fsS --connect-timeout 10 --max-time 30 \
+        "https://hub.docker.com/v2/repositories/${repo}/tags?page_size=100&ordering=last_updated" 2>/dev/null || true)
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+  [[ -z "$tags_json" ]] && return 0
+  # ghcr: .tags[] / Docker Hub: .results[].name を正規化して取得
+  tags_raw=$(printf '%s' "$tags_json" | jq -r '(.tags // [.results[].name])[]?' 2>/dev/null || true)
+  # 数値バージョンタグのみに絞り、最大バージョンを返す
+  printf '%s\n' "$tags_raw" | grep -E '^v?[0-9]+([.][0-9A-Za-z]+)*$' | sort -Vu | tail -1 || true
+}
+
 if [[ "$K8S_ONLY" == false && "$CHARTS_ONLY" == false ]]; then
   title "3. コンテナイメージ & 仮想化スタック確認 & 最新版反映"
   # 管理対象の主要 Deployment イメージ
-  # 形式: "Deployment名|Namespace|コンテナ名"
+  # 形式: "Deployment名|Namespace|コンテナ名|versions.env キー|更新方式"
+  #   更新方式:
+  #     full   - タグ更新時に完全イメージ ref を versions.env に反映
+  #     tag    - タグのみ versions.env に反映
+  #     latest - latest チャネル (検出せずローリング再起動のみ)
   DEPLOY_TARGETS=(
-    "pgadmin|keycloak|pgadmin"
-    "open-webui|open-webui|open-webui"
-    "lemonade|lemonade|lemonade"
+    "pgadmin|keycloak|pgadmin|PGADMIN_IMAGE|latest"
+    "open-webui|open-webui|open-webui|OPEN_WEBUI_IMAGE_TAG|tag"
+    "lemonade|lemonade|lemonade|LEMONADE_IMAGE|full"
   )
 
   for d_target in "${DEPLOY_TARGETS[@]}"; do
-    IFS="|" read -r dep_name dep_ns c_name <<< "$d_target"
+    IFS="|" read -r dep_name dep_ns c_name vs_key vs_mode <<< "$d_target"
 
-    dep_json=$(kubectl get deployment "$dep_name" -n "$dep_ns" -o json 2>/dev/null || echo "{}")
+    # ワークロード種別を自動判別 (永続化 provider=local のチャートは StatefulSet を選択する)
+    dep_kind="deployment"
+    dep_json=$(kubectl get deployment "$dep_name" -n "$dep_ns" -o json 2>/dev/null || echo "")
+    if [[ -z "$dep_json" ]]; then
+      dep_kind="statefulset"
+      dep_json=$(kubectl get statefulset "$dep_name" -n "$dep_ns" -o json 2>/dev/null || echo "")
+    fi
+    if [[ -z "$dep_json" ]]; then
+      continue
+    fi
     img=$(echo "$dep_json" | jq -r --arg c "$c_name" '(.spec.template.spec.containers[]? | select(.name == $c) | .image) // empty' 2>/dev/null || echo "")
     if [[ -z "$img" ]]; then
       continue
@@ -450,13 +518,58 @@ if [[ "$K8S_ONLY" == false && "$CHARTS_ONLY" == false ]]; then
 
     log "[Image] ${dep_name}/${c_name}: ${img}"
 
-    if [[ "$CHECK_ONLY" == false ]]; then
-      # 最新イメージのローリング再起動をトリガー
-      log "  -> ${dep_name} (${dep_ns}) のローリング更新をトリガー中..."
-      kubectl rollout restart deployment/"$dep_name" -n "$dep_ns" >/dev/null 2>&1 || true
-      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${img}|Refreshed")
+    # latest チャネルは従来どおりローリング再起動で最新化
+    if [[ "$vs_mode" == "latest" ]]; then
+      if [[ "$CHECK_ONLY" == false ]]; then
+        log "  -> ${dep_name} (${dep_ns}) のローリング更新をトリガー中..."
+        kubectl rollout restart "${dep_kind}/${dep_name}" -n "$dep_ns" >/dev/null 2>&1 || true
+        SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${img}|Refreshed")
+      else
+        SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${img}|Checked")
+      fi
+      continue
+    fi
+
+    # 最新タグ検出 (失敗時は Skipped)
+    curr_tag="${img##*:}"
+    latest_tag=$(get_latest_image_tag "$img")
+    if [[ -z "$latest_tag" ]]; then
+      warn "  -> ${dep_name} の最新タグ検出に失敗しました (レジストリ接続を確認してください)"
+      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${img}|Skipped")
+      continue
+    fi
+
+    base_img="${img%%:*}"
+    new_img="${base_img}:${latest_tag}"
+
+    if [[ "$curr_tag" == "$latest_tag" ]]; then
+      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${new_img}|Up to date")
+      continue
+    fi
+
+    if [[ "$CHECK_ONLY" == true ]]; then
+      log "  -> アップグレード可能: ${curr_tag} -> ${latest_tag}"
+      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${new_img}|Upgrade available")
+      continue
+    fi
+
+    # versions.env を更新 (次回デプロイの SSOT として反映)
+    if [[ "$vs_mode" == "full" ]]; then
+      sed -i "s|^${vs_key}=.*|${vs_key}=\"${new_img}\"|" "$VERSIONS_ENV"
     else
-      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${img}|Checked")
+      sed -i "s|^${vs_key}=.*|${vs_key}=\"${latest_tag}\"|" "$VERSIONS_ENV"
+    fi
+    log "  -> versions.env の ${vs_key} を ${latest_tag} に更新しました"
+
+    # クラスタの Deployment へ即時反映 (Ansible 再実行前でもアップグレードを適用)
+    log "  -> ${dep_name} (${dep_ns}) のイメージを ${new_img} へ切り替え中..."
+    if kubectl set image "${dep_kind}/${dep_name}" -n "$dep_ns" "${c_name}=${new_img}" >/dev/null 2>&1 \
+      && kubectl rollout status "${dep_kind}/${dep_name}" -n "$dep_ns" --timeout="${HELM_TIMEOUT:-15m}" >/dev/null 2>&1; then
+      log "  -> ${dep_name} のイメージ更新が完了しました。"
+      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${new_img}|Updated")
+    else
+      warn "  -> ${dep_name} のイメージ更新に失敗しました (次回 start.sh 実行で再適用されます)"
+      SUMMARY_RESULTS+=("${dep_name} (${c_name})|Container Image|${img}|${new_img}|Failed")
     fi
   done
 
