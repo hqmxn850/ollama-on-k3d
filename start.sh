@@ -236,7 +236,10 @@ EXTRA_VARS=$(jq -n \
   --arg lemonade_namespace "${LEMONADE_NAMESPACE:-lemonade}" \
   --arg lemonade_hostname "${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN}}" \
   --argjson lemonade_port "${LEMONADE_PORT:-11434}" \
+  --arg lemonade_service_name "${LEMONADE_SERVICE_NAME:-lemonade}" \
   --argjson lemonade_replicas "${LEMONADE_REPLICAS:-1}" \
+  --argjson lemonade_ingress_enabled "${LEMONADE_INGRESS_ENABLED:-true}" \
+  --arg lemonade_image_pull_policy "${LEMONADE_IMAGE_PULL_POLICY:-IfNotPresent}" \
   --arg lemonade_backend "${LEMONADE_BACKEND:-rocm}" \
   --argjson lemonade_gpu_enabled "${LEMONADE_GPU_ENABLED:-true}" \
   --argjson lemonade_gpu_number "${LEMONADE_GPU_NUMBER:-1}" \
@@ -244,17 +247,17 @@ EXTRA_VARS=$(jq -n \
   --arg lemonade_storage_class "${LEMONADE_STORAGE_CLASS:-local-path}" \
   --arg lemonade_cpu_request "${LEMONADE_CPU_REQUEST:-500m}" \
   --arg lemonade_memory_request "${LEMONADE_MEMORY_REQUEST:-2Gi}" \
-  --arg lemonade_memory_limit "${LEMONADE_MEMORY_LIMIT:-16Gi}" \
+  --arg lemonade_memory_limit "${LEMONADE_MEMORY_LIMIT:-48Gi}" \
   --arg lemonade_probe_path "${LEMONADE_PROBE_PATH:-/live}" \
   --argjson lemonade_liveness_delay_seconds "${LEMONADE_LIVENESS_DELAY_SECONDS:-60}" \
   --argjson lemonade_liveness_timeout_seconds "${LEMONADE_LIVENESS_TIMEOUT_SECONDS:-5}" \
-  --argjson lemonade_liveness_failure_threshold "${LEMONADE_LIVENESS_FAILURE_THRESHOLD:-6}" \
+  --argjson lemonade_liveness_failure_threshold "${LEMONADE_LIVENESS_FAILURE_THRESHOLD:-40}" \
   --argjson lemonade_liveness_period_seconds "${LEMONADE_LIVENESS_PERIOD_SECONDS:-15}" \
   --argjson lemonade_readiness_delay_seconds "${LEMONADE_READINESS_DELAY_SECONDS:-30}" \
   --argjson lemonade_readiness_timeout_seconds "${LEMONADE_READINESS_TIMEOUT_SECONDS:-5}" \
   --argjson lemonade_readiness_failure_threshold "${LEMONADE_READINESS_FAILURE_THRESHOLD:-3}" \
   --argjson lemonade_readiness_period_seconds "${LEMONADE_READINESS_PERIOD_SECONDS:-10}" \
-  --arg lemonade_default_model "${LEMONADE_DEFAULT_MODEL:-Qwen3.8-27B-GGUF}" \
+  --arg lemonade_default_model "${LEMONADE_DEFAULT_MODEL:-Gemma-4-E4B-it-GGUF}" \
   --argjson lemonade_default_model_auto_setup "${LEMONADE_DEFAULT_MODEL_AUTO_SETUP:-true}" \
   --argjson lemonade_default_model_setup_retries "${LEMONADE_DEFAULT_MODEL_SETUP_RETRIES:-30}" \
   --argjson lemonade_default_model_setup_retry_interval "${LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL:-2}" \
@@ -766,7 +769,7 @@ cat << EOF
 
 【Lemonade Server (GPU LLM / Ollama 互換 API)】(Worker ノード: 24コア)
   API URL:        https://${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}
-  Internal URL:   http://lemonade.lemonade.svc.cluster.local:${LEMONADE_PORT:-11434}
+  Internal URL:   http://${LEMONADE_SERVICE_NAME:-lemonade}.${LEMONADE_NAMESPACE:-lemonade}.svc.cluster.local:${LEMONADE_PORT:-11434}
   Storage:        PVC (${LEMONADE_STORAGE_SIZE:-30Gi}, local-path)
   Acceleration:   AMD GPU / ROCm パススルー (/dev/kfd, /dev/dri)
 

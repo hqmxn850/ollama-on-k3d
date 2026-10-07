@@ -27,7 +27,7 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: lemonade
+                name: {{ .Values.service.name | default "lemonade" }}
                 port:
                   number: {{ .Values.port }}
 {{- end }}

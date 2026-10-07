@@ -2,13 +2,18 @@
 # Lemonade Server Helm Chart Values (defaults)
 # 実運用値は config.env / ansible/group_vars/all.yml を SSOT として
 # templates/values-lemonade.yaml.j2 から上書きされる。
+# (下記の既定値は SSOT と同一値に揃えてある。SSOT 側を変更した場合は併せて更新すること)
 # ==============================================================================
 replicas: 1
-image: ghcr.io/lemonade-sdk/lemonade-server:latest
+image: ghcr.io/lemonade-sdk/lemonade-server:v2026.40.0
 imagePullPolicy: IfNotPresent
 port: 11434
 backend: rocm
 ctxSize: 8192
+
+# クラスタ内 Service 名 (Service FQDN = service.name.<Namespace>.svc.cluster.local)
+service:
+  name: lemonade
 
 probe:
   path: /live
@@ -16,7 +21,7 @@ probe:
     initialDelaySeconds: 60
     periodSeconds: 15
     timeoutSeconds: 5
-    failureThreshold: 6
+    failureThreshold: 40
   readiness:
     initialDelaySeconds: 30
     periodSeconds: 10
@@ -26,7 +31,7 @@ probe:
 resources:
   cpuRequest: 500m
   memoryRequest: 2Gi
-  memoryLimit: 16Gi
+  memoryLimit: 48Gi
 
 gpu:
   enabled: true
@@ -40,6 +45,7 @@ storage:
 
 ingress:
   enabled: true
+  # SSOT (LEMONADE_HOSTNAME) で必ず上書きされるプレースホルダ
   host: lemonade.local
   clusterIssuer: internal-ca-issuer
 

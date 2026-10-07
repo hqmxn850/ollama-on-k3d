@@ -33,6 +33,8 @@ capi_namespace: "cattle-capi-system"
 turtles_namespace: "cattle-turtles-system"
 kube_system_namespace: "kube-system"
 lemonade_namespace: "{{ lookup('env', 'LEMONADE_NAMESPACE') | default('lemonade', true) }}"
+# クラスタ内 Service 名 (Service FQDN = Service名.名前空間.svc.cluster.local)
+lemonade_service_name: "{{ lookup('env', 'LEMONADE_SERVICE_NAME') | default('lemonade', true) }}"
 open_webui_namespace: "{{ lookup('env', 'OPEN_WEBUI_NAMESPACE') | default('open-webui', true) }}"
 default_namespace: "default"
 
@@ -285,6 +287,14 @@ lemonade_default_model_setup_retries: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_
 lemonade_default_model_setup_retry_interval: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL') | default(2, true) | int }}"
 lemonade_pull_retries: "{{ lookup('env', 'LEMONADE_PULL_RETRIES') | default(10, true) | int }}"
 lemonade_pull_retry_interval: "{{ lookup('env', 'LEMONADE_PULL_RETRY_INTERVAL') | default(10, true) | int }}"
+lemonade_ingress_enabled: "{{ lookup('env', 'LEMONADE_INGRESS_ENABLED') | default(true, true) | bool }}"
+lemonade_image_pull_policy: "{{ lookup('env', 'LEMONADE_IMAGE_PULL_POLICY') | default('IfNotPresent', true) }}"
+
+# 旧 Ollama / OGA リソース (Ollama→Lemonade 移行前の残存) 自動削除
+# 残存 Pod が GPU を保持すると Lemonade Pod が Pending のまま起動しなくなるため
+legacy_cleanup_enabled: "{{ lookup('env', 'LEGACY_CLEANUP_ENABLED') | default(true, true) | bool }}"
+legacy_ai_namespaces: "{{ (lookup('env', 'LEGACY_AI_NAMESPACES') | default('ollama,oga', true)).split(',') | map('trim') | list }}"
+legacy_cleanup_timeout: "{{ lookup('env', 'LEGACY_CLEANUP_TIMEOUT') | default('180s', true) }}"
 
 # AMD NPU 推論エンジン (FastFlowLM / FLM) 設定
 npu_flm_enabled: "{{ lookup('env', 'NPU_FLM_ENABLED') | default(true, true) | bool }}"

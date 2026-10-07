@@ -11,8 +11,9 @@ ollama:
   enabled: false
 
 # クラスタ内 Lemonade (Ollama 互換 API) エンドポイント
+# FQDN = Service 名 (lemonade_service_name) + 名前空間 (lemonade_namespace)
 ollamaUrls:
-  - "http://{{ lemonade_namespace | default('lemonade') }}.{{ lemonade_namespace | default('lemonade') }}.svc.cluster.local:{{ lemonade_port | default(11434) }}"
+  - "http://{{ lemonade_service_name | default('lemonade') }}.{{ lemonade_namespace | default('lemonade') }}.svc.cluster.local:{{ lemonade_port | default(11434) }}"
 
 # Pipelines, Tika, Terminals は不要のため無効化
 pipelines:
@@ -107,6 +108,20 @@ extraEnvVars:
     value: "{{ 'http://' ~ npu_flm_host_ip ~ ':' ~ npu_flm_port ~ '/v1' if (npu_flm_enabled | default(true) | bool) else '' }}"
   - name: OPENAI_API_KEYS
     value: "none"
+  # Pipe 系 Function (multi_model_conversations / planner_agent) 用設定
+  # クラスタ内 Lemonade Service FQDN = Service 名.名前空間.svc.cluster.local
+  - name: LEMONADE_API_URL
+    value: "http://{{ lemonade_service_name | default('lemonade') }}.{{ lemonade_namespace | default('lemonade') }}.svc.cluster.local:{{ lemonade_port | default(11434) }}"
+  # 標準モデル (Lemonade / GPU) — planner の default_model と multi_model の MODELS に反映
+  - name: PIPE_DEFAULT_MODEL
+    value: {{ lemonade_default_model | default('Gemma-4-E4B-it-GGUF') | quote }}
+  - name: PIPE_DEFAULT_MODELS
+    value: {{ (lemonade_default_model | default('Gemma-4-E4B-it-GGUF') ~ (', ' ~ (npu_flm_default_model | default('gemma4-it:e4b')) if (npu_flm_enabled | default(true) | bool) else '')) | quote }}
+{% if npu_flm_enabled | default(true) | bool %}
+  # NPU (FastFlowLM) へルーティングするモデル ID
+  - name: NPU_MODEL_IDS
+    value: {{ npu_flm_default_model | default('gemma4-it:e4b') | quote }}
+{% endif %}
   # Web 検索 (RAG Web Search) 設定
   - name: ENABLE_WEB_SEARCH
     value: "{{ open_webui_web_search_enabled | default(true) | string | lower }}"

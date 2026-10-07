@@ -4,11 +4,15 @@
 # Single Source of Truth: config.env / ansible/group_vars/all.yml
 # ==============================================================================
 replicas: {{ lemonade_replicas | default(1) }}
-image: {{ lemonade_image | default('ghcr.io/lemonade-sdk/lemonade-server:latest') | quote }}
-imagePullPolicy: IfNotPresent
+image: {{ lemonade_image | default('ghcr.io/lemonade-sdk/lemonade-server:v2026.40.0') | quote }}
+imagePullPolicy: {{ lemonade_image_pull_policy | default('IfNotPresent') | quote }}
 port: {{ lemonade_port | default(11434) }}
 backend: {{ lemonade_backend | default('rocm') | quote }}
 ctxSize: {{ lemonade_ctx_size | default(8192) }}
+
+# Service 名 (Service FQDN = service.name.<Namespace>.svc.cluster.local)
+service:
+  name: {{ lemonade_service_name | default('lemonade') | quote }}
 
 probe:
   path: {{ lemonade_probe_path | default('/live') | quote }}
@@ -16,7 +20,7 @@ probe:
     initialDelaySeconds: {{ lemonade_liveness_delay_seconds | default(60) }}
     periodSeconds: {{ lemonade_liveness_period_seconds | default(15) }}
     timeoutSeconds: {{ lemonade_liveness_timeout_seconds | default(5) }}
-    failureThreshold: {{ lemonade_liveness_failure_threshold | default(6) }}
+    failureThreshold: {{ lemonade_liveness_failure_threshold | default(40) }}
   readiness:
     initialDelaySeconds: {{ lemonade_readiness_delay_seconds | default(30) }}
     periodSeconds: {{ lemonade_readiness_period_seconds | default(10) }}
@@ -26,7 +30,7 @@ probe:
 resources:
   cpuRequest: {{ lemonade_cpu_request | default('500m') | quote }}
   memoryRequest: {{ lemonade_memory_request | default('2Gi') | quote }}
-  memoryLimit: {{ lemonade_memory_limit | default('16Gi') | quote }}
+  memoryLimit: {{ lemonade_memory_limit | default('48Gi') | quote }}
 
 gpu:
   enabled: {{ lemonade_gpu_enabled | default(true) | bool | lower }}
@@ -39,7 +43,7 @@ storage:
   size: {{ lemonade_storage_size | default('30Gi') | quote }}
 
 ingress:
-  enabled: true
+  enabled: {{ lemonade_ingress_enabled | default(true) | bool | lower }}
   host: {{ lemonade_hostname | quote }}
   clusterIssuer: {{ cluster_issuer_name | default('internal-ca-issuer') | quote }}
 

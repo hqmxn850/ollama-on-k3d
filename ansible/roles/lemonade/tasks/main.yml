@@ -16,12 +16,38 @@
   changed_when: "'created' in create_lemonade_ns.stdout"
   failed_when: false
 
+# Ollama → Lemonade 移行前の旧デプロイ (旧名前空間) が残存していると、
+# 旧 Pod が GPU を保持したままになり Lemonade Pod が Pending のまま起動できない。
+# 残存時にのみ削除し、冪等に動作する (存在しない場合は何もしない)。
+- name: 旧 Ollama / OGA 名前空間をクリーンアップ (GPU 概奪防止・冪等)
+  ansible.builtin.shell: |
+    set -e
+    deleted=""
+    for ns in {{ legacy_ai_namespaces | default(['ollama', 'oga']) | join(' ') }}; do
+      if kubectl get namespace "$ns" >/dev/null 2>&1; then
+        echo "旧名前空間 ${ns} を削除中 (旧 Ollama / OGA リソースの残存防止)..."
+        kubectl delete namespace "$ns" \
+          --ignore-not-found=true --wait=true \
+          --timeout={{ legacy_cleanup_timeout | default('180s') }}
+        deleted="${deleted} ${ns}"
+      fi
+    done
+    if [ -n "$deleted" ]; then
+      echo "deleted_namespaces:${deleted}"
+    else
+      echo "legacy namespaces: none"
+    fi
+  register: legacy_cleanup
+  changed_when: "'deleted_namespaces:' in legacy_cleanup.stdout"
+  when: legacy_cleanup_enabled | default(true) | bool
+
 # kubectl apply で作成された既存リソースを Helm release (lemonade) へ引き継ぐ。
 # メタデータのみの冪等パッチのため Pod は再作成されない。
 - name: 既存 kubectl 管理リソースを Helm 管理へ adoption (kubectl → Helm 移行用・冪等)
   ansible.builtin.shell: |
-    NS={{ lemonade_namespace }}
-    for res in pvc/lemonade-data deployment/lemonade service/lemonade ingress/lemonade networkpolicy/lemonade-app-protection; do
+    NS={{ lemonade_namespace | quote }}
+    SVC={{ lemonade_service_name | default('lemonade') | quote }}
+    for res in pvc/lemonade-data deployment/lemonade "service/${SVC}" ingress/lemonade networkpolicy/lemonade-app-protection; do
       if kubectl get "$res" -n "$NS" >/dev/null 2>&1; then
         kubectl label "$res" -n "$NS" app.kubernetes.io/managed-by=Helm --overwrite >/dev/null
         kubectl annotate "$res" -n "$NS" \
@@ -31,16 +57,47 @@
     done
   changed_when: false
 
+# ---- 変更検出 (冪等性) ----------------------------------------------------
+# helm upgrade は入力が同一でも常に新しいリビジョンを生成するため、出力文言や
+# リビジョン番号では実質的な変更を判定できない。そこで「レンダリング済みの期待
+# マニフェスト」と「デプロイ済みマニフェスト」を正規化 (空白行・行末空白除去) して
+# 比較し、実差分がある場合のみ changed とする。
+- name: 期待マニフェストをレンダリング (変更検出用)
+  ansible.builtin.command: >
+    helm template lemonade {{ role_path }}/chart
+    --namespace {{ lemonade_namespace }}
+    -f -
+  args:
+    stdin: "{{ lookup('template', 'values-lemonade.yaml.j2') }}"
+  register: lemonade_expected_manifest
+  changed_when: false
+
+- name: デプロイ済みマニフェストを取得 (変更検出用)
+  ansible.builtin.command: >-
+    helm get manifest lemonade --namespace {{ lemonade_namespace }}
+  register: lemonade_current_manifest
+  changed_when: false
+  failed_when: false
+
+- name: マニフェスト差分の有無を判定
+  ansible.builtin.set_fact:
+    lemonade_manifest_changed: >-
+      {{ (lemonade_expected_manifest.stdout | regex_replace('(?m)^[ \t]*$', '')
+          | regex_replace('\n{2,}', '\n'))
+         !=
+         ((lemonade_current_manifest.stdout | default('', true))
+          | regex_replace('(?m)^[ \t]*$', '')
+          | regex_replace('\n{2,}', '\n')) }}
+
 - name: Lemonade を Helm でデプロイ (ローカルチャート)
   ansible.builtin.command: >
     helm upgrade --install lemonade {{ role_path }}/chart
     --namespace {{ lemonade_namespace }}
-    --force-conflicts
     -f -
   args:
     stdin: "{{ lookup('template', 'values-lemonade.yaml.j2') }}"
   register: install_lemonade
-  changed_when: '''Release "lemonade" does not exist'' in install_lemonade.stdout or ''has been upgraded'' in install_lemonade.stdout'
+  changed_when: lemonade_manifest_changed | default(true) | bool
 
 - name: Lemonade Deployment のロールアウト完了を待機
   ansible.builtin.command: >-

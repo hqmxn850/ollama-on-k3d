@@ -7,6 +7,7 @@ description: 複雑なタスクをステップバイステップの計画（Plan
 """
 
 import json
+import os
 from typing import Optional, Union, Generator, Iterator
 import urllib.request
 from pydantic import BaseModel, Field
@@ -14,12 +15,27 @@ from pydantic import BaseModel, Field
 
 class Pipe:
     class Valves(BaseModel):
-        ollama_url: str = Field(default="http://lemonade.lemonade.svc.cluster.local:11434", description="Lemonade (Ollama 互換 API) URL")
-        default_model: str = Field(default="Qwen3.8-27B-GGUF", description="計画および実行に利用する LLM モデル")
+        ollama_url: str = Field(
+            default="",
+            description="Lemonade (Ollama 互換 API) URL (環境変数 OLLAMA_BASE_URLS / LEMONADE_API_URL 設置時はそちらが優先されるため通常は未設定のまま)",
+        )
+        default_model: str = Field(
+            default=os.environ.get("PIPE_DEFAULT_MODEL") or "Gemma-4-E4B-it-GGUF",
+            description="計画および実行に利用する LLM モデル (環境変数 PIPE_DEFAULT_MODEL で上書き可)",
+        )
         max_steps: int = Field(default=4, description="タスク分解の最大ステップ数")
 
     def __init__(self):
         self.valves = self.Valves()
+
+    def _resolve_base_url(self) -> str:
+        """Lemonade (Ollama 互換 API) のベース URL を解決する。環境変数を優先し、未設定なら Valves。"""
+        for key in ("OLLAMA_BASE_URLS", "LEMONADE_API_URL"):
+            value = (os.environ.get(key) or "").strip().split(",")[0].strip()
+            if value.startswith(("http://", "https://")):
+                return value.rstrip("/")
+        value = (self.valves.ollama_url or "").strip().rstrip("/")
+        return value if value.startswith(("http://", "https://")) else ""
 
     def pipes(self) -> list[dict]:
         return [
@@ -36,7 +52,13 @@ class Pipe:
             "messages": messages,
             "stream": False,
         }
-        url = f"{self.valves.ollama_url}/api/chat"
+        base_url = self._resolve_base_url()
+        if not base_url:
+            return (
+                "LLM 呼び出しエラー: Lemonade API URL が未設定です "
+                "(環境変数 OLLAMA_BASE_URLS / LEMONADE_API_URL を確認してください)。"
+            )
+        url = f"{base_url}/api/chat"
         req = urllib.request.Request(
             url,
             data=json.dumps(req_data).encode("utf-8"),

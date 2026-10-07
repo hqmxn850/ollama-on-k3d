@@ -52,6 +52,15 @@ if [[ -f "${PROJECT_ROOT}/config.env" ]]; then
   source "${PROJECT_ROOT}/config.env"
 fi
 
+# 一時ファイル (エラー報告用) の自動クリーンアップ
+TMP_FILES=()
+cleanup_tmp_files() {
+  if [[ ${#TMP_FILES[@]} -gt 0 ]]; then
+    rm -f "${TMP_FILES[@]}" 2>/dev/null || true
+  fi
+}
+trap cleanup_tmp_files EXIT
+
 if [[ -f "${PROJECT_ROOT}/lib/common.sh" ]]; then
   # shellcheck source=/dev/null
   source "${PROJECT_ROOT}/lib/common.sh"
@@ -99,18 +108,19 @@ usage() {
   -h, --help               このヘルプメッセージを表示
 
 推奨モデル例 (HuggingFace GGUF リポジトリ):
-  Qwen3.8-27B-GGUF   標準 27B チャットモデル (約 16 GB)
-  Qwen3-4B-GGUF              軽量・高速 (数 GB)
-  Qwen3-0.6B-GGUF            超軽量・テスト用
+  Gemma-4-E4B-it-GGUF       標準 LLM モデル (config.env: LEMONADE_DEFAULT_MODEL)
+  Qwen3.8-27B-GGUF          高性能 27B チャットモデル (約 16 GB)
+  Qwen3-4B-GGUF             軽量・高速 (数 GB)
+  Qwen3-0.6B-GGUF           超軽量・テスト用
 
 使用例:
   # モデルのダウンロード
-  ./lemonade-pull.sh Qwen3.8-27B-GGUF
+  ./lemonade-pull.sh Gemma-4-E4B-it-GGUF
   ./lemonade-pull.sh -m Qwen3-4B-GGUF
   ./lemonade-pull.sh --list
 
   # モデルの削除
-  ./lemonade-pull.sh rm Qwen3.8-27B-GGUF
+  ./lemonade-pull.sh rm Gemma-4-E4B-it-GGUF
   ./lemonade-pull.sh --delete Qwen3-4B-GGUF
 EOF
   exit 0
@@ -175,7 +185,7 @@ json_tool() {
   local mode="$1"
   if command -v jq &>/dev/null; then
     case "${mode}" in
-      tags)   jq -r '.models[]? | (.name // .model // empty)' ;;
+      tags)   jq -r '.models[]? | [(.name // .model // empty), ((.size // 0) | tostring), (.modified_at // .modified // "-")] | @tsv' ;;
       status) jq -r 'if .status == null then empty
         elif (.completed != null and .total != null and .total > 0)
           then "\(.status) (\((.completed * 100 / .total) | floor)%)"
@@ -193,7 +203,10 @@ except Exception:
     sys.exit(0)
 if mode == 'tags':
     for m in data.get('models', []):
-        print(m.get('name') or m.get('model') or '')
+        name = m.get('name') or m.get('model') or ''
+        if not name:
+            continue
+        print('{}\t{}\t{}'.format(name, m.get('size') or 0, m.get('modified_at') or '-'))
 elif mode == 'status':
     s = data.get('status')
     c = data.get('completed')
@@ -264,7 +277,7 @@ list_models() {
     err "Lemonade API (/api/tags) に接続できませんでした。"
     exit 1
   fi
-  echo "NAME	SIZE	MODIFIED"
+  echo "NAME	SIZE(B)	MODIFIED"
   printf '%s' "${response}" | json_tool tags 2>/dev/null || true
   exit 0
 }
@@ -293,11 +306,13 @@ LEMONADE_BASE_URL="$(api_base_url)"
 # ==============================================================================
 pull_models() {
   local failed=0
-  local max_attempts="${LEMONADE_PULL_RETRIES:-5}"
+  local max_attempts="${LEMONADE_PULL_RETRIES:-10}"
   local retry_interval="${LEMONADE_PULL_RETRY_INTERVAL:-10}"
   for model in "${MODELS[@]}"; do
     local body last_status="" attempt=1 pulled=0 err_file
+    local error_msg status
     err_file="$(mktemp)"
+    TMP_FILES+=("${err_file}")
     body="$(printf '{"name": "%s", "model": "%s", "stream": true}' "${model}" "${model}")"
     while (( attempt <= max_attempts )); do
       log "モデル '${model}' を Lemonade にダウンロード中 (進捗は下記の通り) / 試行 ${attempt}/${max_attempts}..."
@@ -327,7 +342,7 @@ pull_models() {
       sleep "${retry_interval}"
     done
     if (( pulled == 1 )); then
-      succ "モデル '${model}' のダウンロードを開始しました。完了は /api/tags で確認できます。"
+      succ "モデル '${model}' のダウンロードが完了しました (--list で確認できます)。"
     elif [[ -s "${err_file}" ]]; then
       err "モデル '${model}' のダウンロードに失敗しました: $(cat "${err_file}")"
       failed=1

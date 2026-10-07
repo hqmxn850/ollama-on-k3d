@@ -100,7 +100,11 @@
 | `LEMONADE_NAMESPACE` | Lemonade の名前空間 | `lemonade` |
 | `LEMONADE_HOSTNAME` | Lemonade API ホスト名 | `lemonade.${EMAIL_DOMAIN}` |
 | `LEMONADE_PORT` | Lemonade API 待受ポート (Ollama 互換) | `11434` |
-| `LEMONADE_REPLICAS` | Lemonade Replica 数 | `1` |
+| `LEMONADE_SERVICE_NAME` | クラスタ内 Service 名 (Service FQDN = Service 名.名前空間.svc.cluster.local) | `lemonade` |
+| `LEMONADE_INGRESS_ENABLED` | Lemonade Ingress 作成の有効化 | `true` |
+| `LEMONADE_IMAGE_PULL_POLICY` | Lemonade コンテナイメージ pull ポリシー | `IfNotPresent` |
+| `LEMONADE_IMAGE` | Lemonade コンテナイメージ (versions.env で管理) | `ghcr.io/lemonade-sdk/lemonade-server:v2026.40.0` |
+| `LEMONADE_REPLICAS` | Lemonade Replica 数 (**単一レプリカ専用**: GPU 1 枚割当のため拡張不可) | `1` |
 | `LEMONADE_BACKEND` | 推論バックエンド (llama.cpp) | `rocm` |
 | `LEMONADE_GPU_ENABLED` | AMD GPU パススルー有効化 | `true` |
 | `LEMONADE_GPU_NUMBER` | 割り当て GPU デバイス数 | `1` |
@@ -118,6 +122,9 @@
 | `LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL` | 標準 LLM モデル登録前のリトライ間隔 (秒) | `2` |
 | `LEMONADE_PULL_RETRIES` | モデル pull の最大リトライ回数 (部分再開) | `10` |
 | `LEMONADE_PULL_RETRY_INTERVAL` | モデル pull のリトライ間隔 (秒) | `10` |
+| `LEGACY_CLEANUP_ENABLED` | 旧 Ollama / OGA 名前空間の自動削除 (GPU 概奪防止) | `true` |
+| `LEGACY_AI_NAMESPACES` | 旧リソース削除対象の名前空間 (カンマ区切り) | `ollama,oga` |
+| `LEGACY_CLEANUP_TIMEOUT` | 旧名前空間削除の待機タイムアウト | `180s` |
 | `OPEN_WEBUI_ENABLED` | Open WebUI のデプロイ有効化 | `true` |
 | `OPEN_WEBUI_NAMESPACE` | Open WebUI の名前空間 | `open-webui` |
 | `OPEN_WEBUI_HOSTNAME` | Open WebUI ホスト名 | `chat.${EMAIL_DOMAIN}` |
@@ -137,6 +144,8 @@
 | `OPEN_WEBUI_PG_USER` | Open WebUI 用 PostgreSQL ユーザー名 | `openwebui` |
 | `OPEN_WEBUI_PG_PASSWORD` | Open WebUI 用 PostgreSQL パスワード | `openwebui-db-2026` |
 | `AMD_GPU_PLUGIN_ENABLED` | AMD GPU Device Plugin 有効化 | `true` |
+| `AMD_GPU_RESOURCE_DOMAIN` | AMD GPU リソースドメイン (extended resource) | `amd.com` |
+| `AMD_GPU_DEVICE_NAME` | AMD GPU デバイス名 (extended resource 名) | `gpu` |
 | `AMD_NPU_PLUGIN_ENABLED` | AMD NPU Device Plugin 有効化 | `true` |
 | `AMD_NPU_EXPORTER_ENABLED` | AMD NPU Prometheus Exporter 有効化 | `true` |
 | `AMD_NPU_EXPORTER_PORT` | AMD NPU Prometheus Exporter 待受ポート | `9105` |
@@ -182,4 +191,8 @@
    - 生成スループット (tokens/sec) は `rate(lemonade_output_tokens_total[1m])` (生成) / `rate(lemonade_prompt_tokens_total[1m])` (prefill) で取得する。非ストリーミングの `/api/generate` はメトリクス未計上のため、ストリーミング API 経由の利用時のみ加算される。
    - Grafana ダッシュボード `AI / LLM Inference (Lemonade & FastFlowLM)` (`grafana-dashboard-ai` ConfigMap) に Throughput / ROCm (amdgpu 温度・SCLK) / Hybrid 判定パネルを備える (FastFlowLM は `/metrics` 非提供のため案内テキストパネルで明示)。
    - ハイブリッド実行 (NPU prefill + GPU decode) は AMD OGA の **Windows のみ対応**機能のため、本 Linux 環境の Lemonade は llama.cpp (ROCm) の **GPU 単体**で動作する (NPU は FastFlowLM が単体利用)。
+8. **クラスタ内 Service FQDN と旧リソース掃除**:
+   - Lemonade のクラスタ内 FQDN は「**Service 名** (`LEMONADE_SERVICE_NAME`) **. 名前空間** (`LEMONADE_NAMESPACE`) `.svc.cluster.local`」。Service 名と名前空間は別物のため、テンプレート・スクリプトでは必ず両方の変数を併用して組み立てる (名前空間変数の二重使用は禁止)。
+   - `start.sh` / Ansible デプロイ時は、移行前の旧 `ollama` / `oga` 名前空間が残存していれば自動削除する (`LEGACY_CLEANUP_ENABLED` / `LEGACY_AI_NAMESPACES` / `LEGACY_CLEANUP_TIMEOUT`)。旧 Pod が GPU を保持したままでは Lemonade Pod が Pending のまま起動できないため、無効化する場合は GPU 競合に注意すること。
+   - デプロイの冪等判定は「レンダリング済み期待マニフェストとデプロイ済みマニフェストの正規化比較」で行う。`helm upgrade` は入力が同一でも必ず新しいリビジョンを生成するため、リビジョン番号や出力文言では変更を判定できない。
 
