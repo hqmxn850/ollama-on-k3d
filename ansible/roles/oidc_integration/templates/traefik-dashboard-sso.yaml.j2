@@ -6,7 +6,7 @@
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
-  name: traefik-sso-auth
+  name: {{ traefik_sso_middleware_name }}
   namespace: {{ kube_system_namespace }}
   labels:
     app.kubernetes.io/name: traefik
@@ -60,7 +60,7 @@ spec:
       kind: Rule
       priority: 10
       middlewares:
-        - name: traefik-sso-auth
+        - name: {{ traefik_sso_middleware_name }}
       services:
         - name: api@internal
           kind: TraefikService
@@ -70,7 +70,7 @@ spec:
       priority: 5
       middlewares:
         - name: traefik-dashboard-redirect
-        - name: traefik-sso-auth
+        - name: {{ traefik_sso_middleware_name }}
       services:
         - name: api@internal
           kind: TraefikService

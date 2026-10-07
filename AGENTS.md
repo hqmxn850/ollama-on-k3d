@@ -102,6 +102,7 @@
 | `LEMONADE_PORT` | Lemonade API 待受ポート (Ollama 互換) | `11434` |
 | `LEMONADE_SERVICE_NAME` | クラスタ内 Service 名 (Service FQDN = Service 名.名前空間.svc.cluster.local) | `lemonade` |
 | `LEMONADE_INGRESS_ENABLED` | Lemonade Ingress 作成の有効化 | `true` |
+| `LEMONADE_INGRESS_AUTH_ENABLED` | 公開 Ingress への SSO forwardAuth (Keycloak OIDC / oauth2-proxy) 適用。クラスタ内呼び出しは無影響 | `true` |
 | `LEMONADE_IMAGE_PULL_POLICY` | Lemonade コンテナイメージ pull ポリシー | `IfNotPresent` |
 | `LEMONADE_IMAGE` | Lemonade コンテナイメージ (versions.env で管理) | `ghcr.io/lemonade-sdk/lemonade-server:v2026.40.0` |
 | `LEMONADE_REPLICAS` | Lemonade Replica 数 (**単一レプリカ専用**: GPU 1 枚割当のため拡張不可) | `1` |

@@ -129,6 +129,8 @@ traefik_client_secret: "{{ lookup('env', 'TRAEFIK_CLIENT_SECRET') | default('tra
 oauth2_proxy_image: "{{ lookup('env', 'OAUTH2_PROXY_IMAGE') | default('quay.io/oauth2-proxy/oauth2-proxy:v7.8.1', true) }}"
 oauth2_proxy_cookie_secret: "{{ lookup('env', 'OAUTH2_PROXY_COOKIE_SECRET') | default('k3d-traefik-sso-cookie-secret-32', true) }}"
 oauth2_proxy_replicas: "{{ lookup('env', 'OAUTH2_PROXY_REPLICAS') | default(1, true) | int }}"
+# forwardAuth Middleware リソース名 (Traefik Dashboard / Lemonade 公開 API で共通参照)
+traefik_sso_middleware_name: "traefik-sso-auth"
 
 # 管理者グループ名 (Keycloak / Grafana / Open WebUI 共通)
 admin_group_name: "{{ lookup('env', 'ADMIN_GROUP_NAME') | default('rancher-admins', true) }}"
@@ -292,6 +294,8 @@ lemonade_default_model_setup_retry_interval: "{{ lookup('env', 'LEMONADE_DEFAULT
 lemonade_pull_retries: "{{ lookup('env', 'LEMONADE_PULL_RETRIES') | default(10, true) | int }}"
 lemonade_pull_retry_interval: "{{ lookup('env', 'LEMONADE_PULL_RETRY_INTERVAL') | default(10, true) | int }}"
 lemonade_ingress_enabled: "{{ lookup('env', 'LEMONADE_INGRESS_ENABLED') | default(true, true) | bool }}"
+# 公開 Ingress への SSO forwardAuth (Keycloak OIDC) 適用 (Phase 4 で注釈付与)
+lemonade_ingress_auth_enabled: "{{ lookup('env', 'LEMONADE_INGRESS_AUTH_ENABLED') | default(true, true) | bool }}"
 lemonade_image_pull_policy: "{{ lookup('env', 'LEMONADE_IMAGE_PULL_POLICY') | default('IfNotPresent', true) }}"
 
 # 旧 Ollama / OGA リソース (Ollama→Lemonade 移行前の残存) 自動削除

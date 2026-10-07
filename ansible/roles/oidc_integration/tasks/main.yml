@@ -56,6 +56,56 @@
   failed_when: false
   when: not (disable_traefik | default(false))
 
+# ==========================================================
+# Lemonade 公開 API の SSO 保護 (Keycloak OIDC / oauth2-proxy forwardAuth)
+# 既存 traefik-sso-auth Middleware を Ingress 注釈で参照する。
+# クラスタ内 Service FQDN 経由の呼び出し (Open WebUI 等) には影響しない。
+# ==========================================================
+# argv 形式で渡す (command の shlex 解釈で jsonpath のバックスラッシュが
+# 消えないようにするため。引用符なし文字列だと \. が剥がれて空文字になる)
+- name: Lemonade Ingress の forwardAuth 注釈を取得
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - get
+      - ingress
+      - lemonade
+      - -n
+      - "{{ lemonade_namespace }}"
+      - -o
+      - jsonpath={.metadata.annotations.traefik\.ingress\.kubernetes\.io/router\.middlewares}
+  register: lemonade_ingress_mw
+  changed_when: false
+  failed_when: false
+  when:
+    - not (disable_traefik | default(false))
+    - lemonade_ingress_enabled | default(true) | bool
+
+- name: Lemonade 公開 Ingress に SSO forwardAuth を適用
+  ansible.builtin.command: >-
+    kubectl annotate ingress lemonade -n {{ lemonade_namespace }}
+    traefik.ingress.kubernetes.io/router.middlewares={{ kube_system_namespace }}-{{ traefik_sso_middleware_name }}@kubernetescrd
+    --overwrite
+  vars:
+    lemonade_mw_desired: "{{ kube_system_namespace }}-{{ traefik_sso_middleware_name }}@kubernetescrd"
+  when:
+    - not (disable_traefik | default(false))
+    - lemonade_ingress_enabled | default(true) | bool
+    - lemonade_ingress_auth_enabled | default(true) | bool
+    - lemonade_ingress_mw.rc | default(1) == 0
+    - (lemonade_ingress_mw.stdout | default('')) != lemonade_mw_desired
+
+- name: Lemonade 公開 Ingress から forwardAuth 注釈を削除 (認証無効化時)
+  ansible.builtin.command: >-
+    kubectl annotate ingress lemonade -n {{ lemonade_namespace }}
+    traefik.ingress.kubernetes.io/router.middlewares-
+  when:
+    - not (disable_traefik | default(false))
+    - lemonade_ingress_enabled | default(true) | bool
+    - not (lemonade_ingress_auth_enabled | default(true) | bool)
+    - lemonade_ingress_mw.rc | default(1) == 0
+    - (lemonade_ingress_mw.stdout | default('')) | length > 0
+
 - name: Rancher server-url を設定
   ansible.builtin.command: >
     kubectl patch settings.management.cattle.io server-url --type merge -p '{"value":"https://{{ rancher_hostname }}"}'

@@ -109,7 +109,9 @@
 #### 【TC-E2E-03】AI サービス健全性確認
 - **前提**: TC-E2E-02 が完了していること。
 - **操作**: Lemonade API (`https://lemonade.philippines.com.ph/api/tags`) および Open WebUI (`https://chat.philippines.com.ph/`) へ疎通。
-- **期待結果**: HTTP 200 (またはリダイレクト) が返却されること。
+- **期待結果**:
+  - Lemonade (公開 URL): `LEMONADE_INGRESS_AUTH_ENABLED=true` (既定) の場合は SSO forwardAuth による認証要求 (HTTP 302 / 401) が返却され、`false` の場合は HTTP 200 が返却されること。
+  - Open WebUI: HTTP 200 (またはリダイレクト) が返却されること。
 
 #### 【TC-E2E-04】クラスタ停止 & イメージ自動保存・クリーンアップ検証
 - **前提**: クラスタが正常稼働していること。
@@ -128,7 +130,7 @@
 
 | テスト ID | 検証項目 | 前提条件 | 操作手順 | 期待結果 | 検証コマンド |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **TC-AI-01** | Lemonade API 疎通 (Ollama 互換) | Lemonade 稼働中 | `/api/tags` エンドポイントへアクセス | HTTP 200 およびモデル一覧 JSON が返却されること | `curl -sk https://lemonade.philippines.com.ph/api/tags` |
+| **TC-AI-01** | Lemonade API 疎通 (Ollama 互換) | Lemonade 稼働中 | `/api/tags` エンドポイントへアクセス | `LEMONADE_INGRESS_AUTH_ENABLED=true` (既定) では外部アクセスが SSO 認証要求 (HTTP 302 / 401) になり、クラスタ内 Service FQDN 経由では HTTP 200 およびモデル一覧 JSON が返却されること (認証無効時は公開 URL でも HTTP 200) | `curl -sk -o /dev/null -w '%{http_code}' https://lemonade.philippines.com.ph/api/tags` |
 | **TC-AI-02** | AMD GPU パススルー | Worker ノード稼働中 | Lemonade Pod 内で ROCm デバイス確認 | `/dev/kfd` および `/dev/dri` がマウントされ、GPU が認識されていること | `kubectl -n lemonade exec deploy/lemonade -- ls -la /dev/kfd /dev/dri` |
 | **TC-AI-03** | AMD NPU パススルー | Worker ノード稼働中 | NPU Device Plugin および FastFlowLM (ホスト) 確認 | `/dev/accel` が認識され、NPU リソース (`amd.com/npu`) が割当可能であること | `kubectl describe node -l node-role.kubernetes.io/worker=true \| grep -i "amd.com/npu"` |
 | **TC-AI-04** | Open WebUI SSO ログイン | Open WebUI 稼働中 | Web UI へアクセスし Keycloak 認証リダイレクトを確認 | Keycloak OIDC 認証画面が表示され、ワンクリックログインできること | ブラウザで `https://chat.philippines.com.ph` にアクセス |

@@ -122,11 +122,46 @@ OPEN_WEBUI_HOST="${OPEN_WEBUI_HOSTNAME:-chat.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMA
 LEMONADE_HOST="${LEMONADE_HOSTNAME:-lemonade.${EMAIL_DOMAIN:-$DEFAULT_EMAIL_DOMAIN}}"
 
 # Lemonade API (Ollama 互換) 疎通確認
+# LEMONADE_INGRESS_AUTH_ENABLED=true (既定) のとき、外部アクセスは SSO
+# forwardAuth により認証要求 (302/401 等) されるのが正常。クラスタ内
+# Service FQDN 呼び出し (Open WebUI 等) には認証は掛からない。
+LEMONADE_AUTH="${LEMONADE_INGRESS_AUTH_ENABLED:-true}"
 LEMONADE_HTTP=$(curl -sk -o /dev/null -w "%{http_code}" "https://${LEMONADE_HOST}/api/tags" 2>/dev/null || echo "000")
-if [[ "$LEMONADE_HTTP" == "200" ]]; then
-  pass "Lemonade API 疎通確認 (HTTP 200 / https://${LEMONADE_HOST}/api/tags)"
+if [[ "$LEMONADE_AUTH" == "true" ]]; then
+  if [[ "$LEMONADE_HTTP" =~ ^(301|302|303|401|403)$ ]]; then
+    pass "Lemonade API SSO 認証要求を確認 (HTTP ${LEMONADE_HTTP} / https://${LEMONADE_HOST})"
+  elif [[ "$LEMONADE_HTTP" == "200" ]]; then
+    fail "Lemonade API が認証なしでアクセス可能 (SSO forwardAuth が未適用 / HTTP 200)"
+  else
+    warn "Lemonade API 疎通 (HTTP ${LEMONADE_HTTP} / https://${LEMONADE_HOST})"
+  fi
+elif [[ "$LEMONADE_HTTP" == "200" ]]; then
+  pass "Lemonade API 疎通確認 (HTTP 200 / https://${LEMONADE_HOST} / SSO 無効)"
 else
   warn "Lemonade API 疎通 (HTTP ${LEMONADE_HTTP} / https://${LEMONADE_HOST})"
+fi
+
+# クラスタ内からの Lemonade バックエンド直接確認 (公開 URL は SSO 保護のため
+# 応答が認証要求になる。実 API の 200 は NetworkPolicy 許可 ns の Open WebUI
+# Pod から Service FQDN 経由で確認する)
+OWUI_POD=$(kubectl get pod -n open-webui -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+if [[ -n "$OWUI_POD" ]]; then
+  INCLUSTER_HTTP=""
+  for PY_BIN in python3 python; do
+    INCLUSTER_HTTP=$(kubectl exec -n open-webui -c open-webui "$OWUI_POD" -- \
+      "$PY_BIN" -c "import urllib.request;print(urllib.request.urlopen('http://lemonade.lemonade.svc.cluster.local:${LEMONADE_PORT:-11434}/api/tags',timeout=15).status)" \
+      2>/dev/null | tail -1 || true)
+    if [[ -n "$INCLUSTER_HTTP" ]]; then
+      break
+    fi
+  done
+  if [[ "$INCLUSTER_HTTP" == "200" ]]; then
+    pass "Lemonade バックエンド疎通 (クラスタ内 Service FQDN / HTTP 200 / pod: ${OWUI_POD})"
+  else
+    fail "Lemonade バックエンド疎通失敗 (クラスタ内応答: ${INCLUSTER_HTTP:-なし} / pod: ${OWUI_POD})"
+  fi
+else
+  fail "open-webui Pod が見つからないためクラスタ内 Lemonade 疎通を確認できません"
 fi
 
 # Open WebUI 疎通確認
