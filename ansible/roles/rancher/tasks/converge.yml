@@ -322,3 +322,89 @@
   changed_when: "'created' in apply_rancher_netpol.stdout or 'configured' in apply_rancher_netpol.stdout"
   when: enable_network_policy | default(true) | bool
 
+# ==========================================================
+# cattle-* 起動待ち合わせ (後続フェーズとの同期ポイント)
+# Rancher が管理する全 cattle-* 名前空間 (cattle-system / fleet /
+# monitoring / capi / turtles 等) のワークロードが収束するまで
+# ブロッキングし、Stage 2-2 (監視収束) や Phase 4 (OIDC 統合) と
+# の実行競合を防止する。
+#   - 対象: cattle_ns_prefix に前方一致する全名前空間の
+#           Deployment / DaemonSet / StatefulSet
+#   - 期限: cattle_converge_timeout_seconds (CATTLE_CONVERGE_TIMEOUT_SECONDS)
+#   - ポーリング間隔: quick_retry_delay (QUICK_RETRY_DELAY)
+# ==========================================================
+- name: cattle-* 名前空間のワークロード起動完了を待ち合わせ
+  ansible.builtin.shell: |
+    set -u
+    TIMEOUT_SECONDS={{ cattle_converge_timeout_seconds }}
+    POLL_DELAY={{ quick_retry_delay }}
+    NS_PREFIX='{{ cattle_ns_prefix }}'
+    END=$(( $(date +%s) + TIMEOUT_SECONDS ))
+
+    # cattle-* 名前空間の一覧を取得 (API 一時障害に備えて少数リトライ)
+    CATTLE_NS=""
+    RETRY=0
+    while [ "${RETRY}" -lt {{ quick_retry_count }} ]; do
+      CATTLE_NS=$(kubectl get namespaces -o name 2>/dev/null | sed -n 's|^namespace/||p' | grep "^${NS_PREFIX}" || true)
+      [ -n "${CATTLE_NS}" ] && break
+      RETRY=$((RETRY + 1))
+      sleep "${POLL_DELAY}"
+    done
+    if [ -z "${CATTLE_NS}" ]; then
+      echo "ERROR: ${NS_PREFIX}* 名前空間が 1 件も存在しません (Rancher 未デプロイの可能性)"
+      exit 1
+    fi
+    TOTAL=$(echo "${CATTLE_NS}" | wc -l | tr -d ' ')
+    echo "待ち合わせ対象: ${TOTAL} 名前空間 [$(echo ${CATTLE_NS} | tr '\n' ' ')] (期限 ${TIMEOUT_SECONDS}s)"
+
+    for NS in ${CATTLE_NS}; do
+      # 1) 名前空間が Active になるまで待機
+      while true; do
+        PHASE=$(kubectl get namespace "${NS}" -o jsonpath='{.status.phase}' 2>/dev/null || echo "Unknown")
+        if [ "${PHASE}" = "Active" ]; then
+          break
+        fi
+        if [ "$(date +%s)" -ge "${END}" ]; then
+          echo "ERROR: 名前空間 ${NS} が Active になりません (phase=${PHASE})"
+          kubectl get namespace "${NS}" -o wide || true
+          exit 1
+        fi
+        echo "  ${NS}: phase=${PHASE} を待機中..."
+        sleep "${POLL_DELAY}"
+      done
+
+      # 2) 全ワークロード (Deployment / DaemonSet / StatefulSet) の収束を待機
+      RESOURCES=$(kubectl get deploy,ds,sts -n "${NS}" -o name 2>/dev/null || true)
+      if [ -z "${RESOURCES}" ]; then
+        echo "  ${NS}: ワークロードなし (Active 確認済み)"
+        continue
+      fi
+      for RES in ${RESOURCES}; do
+        while true; do
+          REMAINING=$((END - $(date +%s)))
+          if [ "${REMAINING}" -le 0 ]; then
+            echo "ERROR: 期限 (${TIMEOUT_SECONDS}s) 内に ${NS}/${RES} がロールアウト完了しませんでした"
+            kubectl get "${RES}" -n "${NS}" -o wide || true
+            kubectl get pods -n "${NS}" -o wide || true
+            exit 1
+          fi
+          if kubectl rollout status "${RES}" -n "${NS}" --timeout="${REMAINING}s" 2>&1; then
+            echo "  ${NS}/${RES}: 収束確認"
+            break
+          fi
+          # 一時的な API エラー等で早期失敗した場合は期限まで再試行する
+          if [ "$(date +%s)" -ge "${END}" ]; then
+            echo "ERROR: ${NS}/${RES} が期限 (${TIMEOUT_SECONDS}s) 内に収束しませんでした"
+            kubectl get "${RES}" -n "${NS}" -o wide || true
+            kubectl get pods -n "${NS}" -o wide || true
+            exit 1
+          fi
+          echo "  ${NS}/${RES}: 未収束 (再試行)..."
+          sleep "${POLL_DELAY}"
+        done
+      done
+    done
+    echo "cattle-* 名前空間 ${TOTAL} 件のワークロード起動完了を確認しました。"
+  register: cattle_converge_wait
+  changed_when: false
+

@@ -31,6 +31,8 @@ fleet_namespace: "cattle-fleet-system"
 fleet_local_namespace: "cattle-fleet-local-system"
 capi_namespace: "cattle-capi-system"
 turtles_namespace: "cattle-turtles-system"
+# cattle-* 全名前空間の前方一致プレフィックス (Rancher 系 NS の起動待ち合わせ対象抽出用)
+cattle_ns_prefix: "cattle-"
 kube_system_namespace: "kube-system"
 lemonade_namespace: "{{ lookup('env', 'LEMONADE_NAMESPACE') | default('lemonade', true) }}"
 # クラスタ内 Service 名 (Service FQDN = Service名.名前空間.svc.cluster.local)
@@ -47,6 +49,8 @@ node_ready_timeout: "{{ lookup('env', 'NODE_READY_TIMEOUT') | default('300s', tr
 k3d_create_timeout: "{{ lookup('env', 'K3D_CREATE_TIMEOUT') | default('300s', true) }}"
 k3d_gpus: "{{ lookup('env', 'K3D_GPUS') | default('all', true) }}"
 pod_delete_timeout: "{{ lookup('env', 'POD_DELETE_TIMEOUT') | default('30s', true) }}"
+# Rancher (cattle-*) 起動待ち合わせの全体期限 (rancher ロール収束時の同期ポイント)
+cattle_converge_timeout_seconds: "{{ lookup('env', 'CATTLE_CONVERGE_TIMEOUT_SECONDS') | default(600, true) | int }}"
 
 # 共通リトライ階層 (全タスクの retries / delay は必ず本階層から参照する)
 default_retry_count: "{{ lookup('env', 'DEFAULT_RETRY_COUNT') | default(60, true) | int }}"
