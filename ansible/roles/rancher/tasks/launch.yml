@@ -41,6 +41,12 @@
     - cert-manager-webhook
   changed_when: false
 
+- name: 証明書適用先の keycloak 名前空間を作成 (Phase 2 未実行時の単独実行対応)
+  ansible.builtin.command: "kubectl create namespace {{ keycloak_namespace }}"
+  register: create_keycloak_ns
+  changed_when: "'created' in create_keycloak_ns.stdout"
+  failed_when: false
+
 - name: 内部 CA および Keycloak 証明書マニフェストを適用
   ansible.builtin.command: "kubectl apply -f -"
   args:
