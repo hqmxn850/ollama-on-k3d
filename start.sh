@@ -634,6 +634,12 @@ if [[ "$CHECK_MODE" == false && "${AMD_NPU_PLUGIN_ENABLED:-true}" == true ]]; th
           succ "${PM_OUT}"
         else
           warn "NPU パワーモードの設定に失敗しました: ${PM_OUT}"
+          # 診断情報 (firmware wedged はソフト修復不可のため再起動を推奨)
+          if [[ -e /dev/accel/accel0 ]]; then
+            warn "/dev/accel/accel0 は存在しますが状態が不正な可能性があります (device offline or firmware wedged)。NPU 推論 (FastFlowLM) はホスト再起動後に有効化されます。デプロイ自体は継続します。"
+          else
+            warn "/dev/accel デバイスが見つかりません。BIOS / ドライバ設定で NPU が有効か確認してください。デプロイ自体は継続します。"
+          fi
         fi
       else
         log "AMD XDNA NPU パワーモードは既に設定済みです: ${CURR_PM_INFO}"

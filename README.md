@@ -170,6 +170,19 @@ flowchart TD
 
 ---
 
+## トラブルシュート
+
+### NPU パワーモードの設定に失敗する (`device offline or firmware wedged`)
+
+`start.sh` / `amd_gpu` ロールが AMD XDNA NPU のパワーモード (Turbo) 設定に失敗する警告を表示する場合、NPU ファームウェアが wedged 状態 (デバイスオフライン) の可能性があります。この状態はソフトウェアからは修復できないため、**ホストマシンの再起動**を推奨します。
+
+- デプロイ自体は警告で継続します (NPU 以外の機能には影響しません)
+- 再起動前に `ls -l /dev/accel` と `dmesg | grep -i amd` でデバイス状態を確認してください
+- 再起動後は `./start.sh` を再実行するか、`ansible-playbook site.yml --tags amd_gpu` で NPU 関連設定を再適用すると Turbo モードが有効になります
+- firmware wedged 中は FastFlowLM (NPU 推論) は利用不可です (GPU の Lemonade は利用可能)
+
+---
+
 ## 関連ドキュメント
 
 - [spec.md](file:///home/masashi/ai/projects/ollama-on-k3d/spec.md) … 詳細仕様書
