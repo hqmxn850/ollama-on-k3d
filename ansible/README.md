@@ -52,13 +52,18 @@ ansible-galaxy collection install -r requirements.yml
 
 ```bash
 cd ansible
+set -a && source ../config.env && source ../versions.env && set +a
 ansible-playbook playbooks/site.yml
 ```
+
+`config.env` (設定) と `versions.env` (K3s / チャート / イメージバージョン) を環境変数にエクスポートしてから実行します (`start.sh` と同じ読み込み)。
+省略した場合は `group_vars/all.yml` のフォールバック既定値が使われるため、`versions.env` で更新されたバージョン (例: K3s イメージ) が反映されず `config.yaml` の生成内容がずれる点に注意してください。
 
 ### 4. クラスタの停止 (クリーンアップ)
 
 ```bash
 cd ansible
+set -a && source ../config.env && set +a
 ansible-playbook playbooks/teardown.yml
 ```
 

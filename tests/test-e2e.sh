@@ -69,6 +69,16 @@ if [[ "$FORCE" != true ]]; then
 fi
 
 if [[ "$USE_ANSIBLE" == true ]]; then
+  # ansible-playbook 直接実行では SSOT (config.env / versions.env) を環境変数に
+  # エクスポートする (start.sh と同じ読み込み順)。省略すると group_vars の
+  # フォールバック既定値 (例: K3s イメージ) が使われ、config.yaml が
+  # versions.env のバージョンと食い違うため。
+  set -a
+  # shellcheck disable=SC1091
+  source config.env 2>/dev/null || true
+  # shellcheck disable=SC1091
+  source versions.env 2>/dev/null || true
+  set +a
   info "E2E Step 1: クラスタ起動テスト (ansible-playbook site.yml 直接実行)"
   echo "Ansible Playbook によるクラスタデプロイを開始します..."
   if ANSIBLE_CONFIG="${PROJECT_ROOT}/ansible/ansible.cfg" \
