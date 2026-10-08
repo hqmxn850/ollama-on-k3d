@@ -325,11 +325,12 @@
 # ==========================================================
 # cattle-* 起動待ち合わせ (後続フェーズとの同期ポイント)
 # Rancher が管理する全 cattle-* 名前空間 (cattle-system / fleet /
-# monitoring / capi / turtles 等) のワークロードが収束するまで
-# ブロッキングし、Stage 2-2 (監視収束) や Phase 4 (OIDC 統合) と
-# の実行競合を防止する。
+# monitoring / capi / turtles 等) のワークロードが収束し、
+# 全 Pod が完全起動 (Ready) するまでブロッキングし、
+# Stage 2-2 (監視収束) や Phase 4 (OIDC 統合) との実行競合を防止する。
 #   - 対象: cattle_ns_prefix に前方一致する全名前空間の
-#           Deployment / DaemonSet / StatefulSet
+#           Deployment / DaemonSet / StatefulSet、および全 Pod
+#           (終端済み Pod: Completed/Error/Failed、Terminating 中は除外)
 #   - 期限: cattle_converge_timeout_seconds (CATTLE_CONVERGE_TIMEOUT_SECONDS)
 #   - ポーリング間隔: quick_retry_delay (QUICK_RETRY_DELAY)
 # ==========================================================
@@ -405,6 +406,36 @@
       done
     done
     echo "cattle-* 名前空間 ${TOTAL} 件のワークロード起動完了を確認しました。"
+
+    # 3) 全名前空間の Pod 完全起動 (Ready) を待機
+    #    終端済み Pod (Completed/Error/Failed) と Terminating 中は
+    #    対象外 (helm 操作の一時 Pod は終了状態のまま残存するため)
+    while true; do
+      NOT_READY=""
+      for NS in ${CATTLE_NS}; do
+        BAD=$(kubectl get pods -n "${NS}" --no-headers 2>/dev/null | awk '{
+          if ($3 == "Completed" || $3 == "Error" || $3 == "Failed" || $3 == "Terminating") next
+          split($2, a, "/")
+          if ($3 != "Running" || a[1] != a[2] || a[2] + 0 < 1) print $1 " (" $2 " " $3 ")"
+        }')
+        if [ -n "${BAD}" ]; then
+          NOT_READY="${NOT_READY} ${NS}: $(echo "${BAD}" | tr '\n' '|')"
+        fi
+      done
+      if [ -z "${NOT_READY}" ]; then
+        echo "cattle-* 全名前空間の Pod 完全起動 (Ready) を確認しました。"
+        break
+      fi
+      if [ "$(date +%s)" -ge "${END}" ]; then
+        echo "ERROR: 期限 (${TIMEOUT_SECONDS}s) 内に Pod が完全起動しませんでした:${NOT_READY}"
+        for NS in ${CATTLE_NS}; do
+          kubectl get pods -n "${NS}" -o wide || true
+        done
+        exit 1
+      fi
+      echo "  未 Ready Pod:${NOT_READY}"
+      sleep "${POLL_DELAY}"
+    done
   register: cattle_converge_wait
   changed_when: false
 

@@ -198,7 +198,8 @@
    - `start.sh` / Ansible デプロイ時は、移行前の旧 `ollama` / `oga` 名前空間が残存していれば自動削除する (`LEGACY_CLEANUP_ENABLED` / `LEGACY_AI_NAMESPACES` / `LEGACY_CLEANUP_TIMEOUT`)。旧 Pod が GPU を保持したままでは Lemonade Pod が Pending のまま起動できないため、無効化する場合は GPU 競合に注意すること。
    - デプロイの冪等判定は「レンダリング済み期待マニフェストとデプロイ済みマニフェストの正規化比較」で行う。`helm upgrade` は入力が同一でも必ず新しいリビジョンを生成するため、リビジョン番号や出力文言では変更を判定できない。
 9. **Rancher (cattle-*) 起動待ち合わせ**:
-   - `rancher` ロール収束フェーズ (`converge.yml`) の最後に、`cattle_ns_prefix` (既定 `cattle-`) に前方一致する全名前空間の Active 化と、各 Deployment / DaemonSet / StatefulSet のロールアウト完了までをブロッキング待機する同期ポイントを設ける。
+   - `rancher` ロール収束フェーズ (`converge.yml`) の最後に、`cattle_ns_prefix` (既定 `cattle-`) に前方一致する全名前空間の Active 化、各 Deployment / DaemonSet / StatefulSet のロールアウト完了、さらに**全 Pod の完全起動 (Ready)** までをブロッキング待機する同期ポイントを設ける。
+   - Pod 待ちは非終端 Pod (全レプリカ Ready・`0/0` 非許容) を対象とし、終端済み Pod (`Completed` / `Error` / `Failed`) および `Terminating` 中は除外する (Rancher の helm 操作一時 Pod は終了状態のまま残存するため)。
    - これにより Stage 2-2 (監視収束) や Phase 4 (OIDC 統合) が Rancher 系コンポーネントの起動中に走ることを防ぐ。全体期限は `CATTLE_CONVERGE_TIMEOUT_SECONDS` (既定 `600` 秒)、ポーリング間隔は `QUICK_RETRY_DELAY`。
    - 期限内に収束しなかった場合は対象リソースと Pod 一覧を出力してフェイルファストする (監視ロールの `kubectl rollout status --timeout` と同じ方針)。タスクは `changed_when: false` で再実行時も `ok` のまま冪等に動作する。
 
