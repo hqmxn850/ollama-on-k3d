@@ -225,6 +225,12 @@ if [[ -f "${PROJECT_ROOT}/lemonade-pull.sh" ]]; then
     fail "lemonade-pull.sh: ヘルプオプション出力に失敗 (出力: $OUTPUT_LP_HELP)"
   fi
 
+  if echo "$OUTPUT_LP_HELP" | grep -q "catalog"; then
+    pass "lemonade-pull.sh: ヘルプに catalog サブコマンドが記載"
+  else
+    fail "lemonade-pull.sh: ヘルプに catalog サブコマンドの記載なし"
+  fi
+
   OUTPUT_LP_BAD=$("${PROJECT_ROOT}/lemonade-pull.sh" --invalid-option 2>&1 || true)
   if echo "$OUTPUT_LP_BAD" | grep -qi "未知のオプション"; then
     pass "lemonade-pull.sh: 無効オプション指定時のエラーハンドリング"

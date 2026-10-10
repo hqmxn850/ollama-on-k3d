@@ -66,6 +66,10 @@ vim config.env
 # ダウンロード済みモデル一覧確認
 ./lemonade-pull.sh list
 
+# 公式カタログから pull 可能なモデル一覧 (名前・サイズ・特徴) を表示 (クラスタ不要)
+./lemonade-pull.sh catalog
+./lemonade-pull.sh catalog gemma 12b   # キーワード部分一致フィルタ (AND)
+
 # モデルの削除
 ./lemonade-pull.sh rm <モデル名>
 ```

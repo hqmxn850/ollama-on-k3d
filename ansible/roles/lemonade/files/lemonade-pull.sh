@@ -12,6 +12,7 @@
 #   ./lemonade-pull.sh rm <model_name> [model_name2 ...]
 #   ./lemonade-pull.sh --delete <model_name> [model_name2 ...]
 #   ./lemonade-pull.sh --list
+#   ./lemonade-pull.sh catalog [キーワード ...]
 #   ./lemonade-pull.sh --help
 #
 # オプション:
@@ -20,6 +21,8 @@
 #   -d, --delete, --rm       指定されたモデルをクラスタから削除
 #   rm, delete               指定されたモデルを削除するサブコマンド
 #   -l, --list               現在クラスタ内にダウンロード済みのモデル一覧を表示
+#   catalog, -c, --catalog   Lemonade 公式カタログから pull 可能なモデル一覧 (名前・サイズ・特徴) を表示
+#                            (後続のキーワードで部分一致フィルタ・複数指定で AND 絞り込み)
 #   -n, --namespace <ns>     Lemonade の名前空間 (デフォルト: config.env の LEMONADE_NAMESPACE)
 #   --api                    Ingress / HTTPS API 経由で実行 (デフォルト: Pod 内 kubectl exec)
 #   -h, --help               このヘルプメッセージを表示
@@ -28,6 +31,8 @@
 #   ./lemonade-pull.sh Qwen3.8-27B-GGUF
 #   ./lemonade-pull.sh rm Qwen3.8-27B-GGUF
 #   ./lemonade-pull.sh --list
+#   ./lemonade-pull.sh catalog
+#   ./lemonade-pull.sh catalog gemma 12b
 # ==============================================================================
 set -euo pipefail
 
@@ -90,6 +95,7 @@ usage() {
   ./lemonade-pull.sh rm <model_name> [model_name2 ...]
   ./lemonade-pull.sh --delete <model_name> [model_name2 ...]
   ./lemonade-pull.sh --list
+  ./lemonade-pull.sh catalog [キーワード ...]
 
 説明:
   Kubernetes 上で稼働中の Lemonade Server (Ollama 互換 API) に指定された
@@ -102,6 +108,9 @@ usage() {
   -d, --delete, --rm       指定されたモデルをクラスタから削除
   rm, delete               指定されたモデルを削除するサブコマンド構文
   -l, --list               現在クラスタ内にダウンロード済みのモデル一覧を表示
+  catalog, -c, --catalog   Lemonade 公式カタログ (server_models.json) から pull 可能な
+                           モデル一覧 (名前・サイズ・特徴) を表示。キーワード指定で
+                           部分一致フィルタ (複数指定は AND)。クラスタ接続は不要。
   -n, --namespace <ns>     Lemonade の名前空間 (デフォルト: lemonade)
   --exec                   kubectl exec 経由で Pod 内 API を直接利用 (デフォルト)
   --api                    Ingress / HTTPS API 経由で実行
@@ -119,6 +128,10 @@ usage() {
   ./lemonade-pull.sh -m Qwen3-4B-GGUF
   ./lemonade-pull.sh --list
 
+  # 公式カタログから pull 可能なモデル一覧を表示 (クラスタ不要)
+  ./lemonade-pull.sh catalog
+  ./lemonade-pull.sh catalog gemma 12b
+
   # モデルの削除
   ./lemonade-pull.sh rm Gemma-4-E4B-it-GGUF
   ./lemonade-pull.sh --delete Qwen3-4B-GGUF
@@ -134,6 +147,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     -l|--list)
       ACTION="list"
+      shift
+      ;;
+    catalog|-c|--catalog)
+      # カタログ表示サブコマンド: 公式 server_models.json を取得して一覧表示
+      ACTION="catalog"
       shift
       ;;
     -d|--delete|--rm|rm|delete)
@@ -172,8 +190,8 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# 前提コマンドの確認
-if ! command -v kubectl &>/dev/null; then
+# 前提コマンドの確認 (catalog はクラスタ非依存のため kubectl 不要)
+if [[ "${ACTION}" != "catalog" ]] && ! command -v kubectl &>/dev/null; then
   err "kubectl コマンドが見つかりません。クラスタ接続環境を確認してください。"
   exit 1
 fi
@@ -181,8 +199,12 @@ fi
 # JSON 解析ツールの選択 (jq 優先、なければ python3)
 # 使用法: json_tool tags     -> モデル名を 1 行ずつ出力
 #         json_tool status   -> status フィールドを出力
+#         json_tool vtag     -> 最新の v タグ名を出力 (GitHub tags API 用)
+#         json_tool catalog [キーワード...] -> 公式カタログの TSV 一覧 (キーワード部分一致フィルタ)
 json_tool() {
   local mode="$1"
+  shift
+  local words=("$@")
   if command -v jq &>/dev/null; then
     case "${mode}" in
       tags)   jq -r '.models[]? | [(.name // .model // empty), ((.size // 0) | tostring), (.modified_at // .modified // "-")] | @tsv' ;;
@@ -191,12 +213,35 @@ json_tool() {
           then "\(.status) (\((.completed * 100 / .total) | floor)%)"
         else .status end' ;;
       error)  jq -r '.error? // empty | if type == "object" then (.message // tostring) else tostring end' ;;
+      vtag)   jq -r '[.[]? | select((.name // "") | startswith("v"))][0].name // empty' ;;
+      catalog) jq -r --args '
+        ($ARGS.positional | map(ascii_downcase)) as $w
+        | to_entries
+        | map(
+            . as $e
+            | ($e.value // {}) as $m
+            | (($e.key // "") + " " + (($m.labels // []) | join(" ")) + " " + ($m.checkpoint // "") + " " + (($m.checkpoints // {}) | tostring) | ascii_downcase) as $hay
+            | select(($w | length) == 0 or ([$w[] as $x | $hay | contains($x)] | all))
+            | [ ($e.key // ""),
+                (if (($m.size // null) | type) == "number" then ($m.size | tostring) else "-" end),
+                ($m.recipe // "-"),
+                (($m.labels // []) | join(",") | if . == "" then "-" else . end),
+                (if $m.suggested == true then "*" else "" end),
+                ($m.checkpoint // ($m.checkpoints.main // "-")) ]
+          )
+        | ([ "NAME\tSIZE(GB)\tRECIPE\tLABELS\tSUGGESTED\tCHECKPOINT" ]
+           + [ .[] | @tsv ]
+           + [ "TOTAL: \(length) models" ])
+        | .[]
+      ' "${words[@]}"
+      ;;
       *)      return 1 ;;
     esac
   else
     python3 -c "
 import json, sys
 mode = sys.argv[1]
+words = [w.lower() for w in sys.argv[2:] if w]
 try:
     data = json.load(sys.stdin)
 except Exception:
@@ -221,7 +266,40 @@ elif mode == 'error':
         print(e.get('message') or json.dumps(e, ensure_ascii=False))
     elif e:
         print(e)
-" "${mode}"
+elif mode == 'vtag':
+    for t in data if isinstance(data, list) else []:
+        name = str(t.get('name', '')) if isinstance(t, dict) else ''
+        if name.startswith('v'):
+            print(name)
+            break
+elif mode == 'catalog':
+    items = data.items() if isinstance(data, dict) else []
+    rows = []
+    for name, meta in items:
+        if not isinstance(meta, dict):
+            continue
+        labels = meta.get('labels') or []
+        if not isinstance(labels, list):
+            labels = [str(labels)]
+        checkpoint = str(meta.get('checkpoint') or (meta.get('checkpoints') or {}).get('main') or '')
+        hay = ' '.join([str(name), ' '.join(str(x) for x in labels),
+                        checkpoint, json.dumps(meta.get('checkpoints') or {}, ensure_ascii=False)]).lower()
+        if words and not all(w in hay for w in words):
+            continue
+        size = meta.get('size')
+        rows.append('\t'.join([
+            str(name),
+            ('%g' % size) if isinstance(size, (int, float)) else '-',
+            str(meta.get('recipe') or '-'),
+            ','.join(str(x) for x in labels) or '-',
+            '*' if meta.get('suggested') is True else '',
+            checkpoint or '-',
+        ]))
+    print('NAME\tSIZE(GB)\tRECIPE\tLABELS\tSUGGESTED\tCHECKPOINT')
+    for r in rows:
+        print(r)
+    print('TOTAL: {} models'.format(len(rows)))
+" "${mode}" "${words[@]}"
   fi
 }
 
@@ -281,6 +359,61 @@ list_models() {
   printf '%s' "${response}" | json_tool tags 2>/dev/null || true
   exit 0
 }
+
+# ==============================================================================
+# 公式モデルカタログの表示 (catalog サブコマンド / クラスタ非依存)
+# Lemonade 公式 GitHub の server_models.json を取得し、pull 可能なモデル一覧
+# (名前・サイズ・特徴) を表示する。取得元は config.env の LEMONADE_CATALOG_* で一元管理。
+# ==============================================================================
+
+# HTTP GET (curl 優先、wget フォールバック)
+http_get() {
+  local timeout="${LEMONADE_CATALOG_TIMEOUT:-30}"
+  if command -v curl &>/dev/null; then
+    curl -fsSL --max-time "${timeout}" "$@"
+  elif command -v wget &>/dev/null; then
+    wget -qO- -T "${timeout}" "$@"
+  else
+    err "curl / wget のいずれも見つかりません (カタログ取得には必要です)。"
+    return 1
+  fi
+}
+
+# カタログ JSON の取得 (最新 v タグを優先、取得失敗時は Fallback ref へ)
+fetch_catalog_json() {
+  local api="${LEMONADE_CATALOG_GITHUB_API:-https://api.github.com}"
+  local raw="${LEMONADE_CATALOG_RAW_BASE:-https://raw.githubusercontent.com}"
+  local repo="${LEMONADE_CATALOG_REPO:-lemonade-sdk/lemonade}"
+  local path="${LEMONADE_CATALOG_PATH:-src/cpp/resources/server_models.json}"
+  local ref
+  ref="$(http_get "${api}/repos/${repo}/tags?per_page=100" 2>/dev/null | json_tool vtag 2>/dev/null || true)"
+  ref="$(printf '%s' "${ref}" | head -n1 | tr -d '[:space:]')"
+  ref="${ref:-${LEMONADE_CATALOG_FALLBACK_REF:-main}}"
+  log "カタログ取得元: ${repo}@${ref} (${path})" >&2
+  http_get "${raw}/${repo}/${ref}/${path}"
+}
+
+# カタログ一覧の表示 (キーワード部分一致フィルタ: 複数指定は AND)
+show_catalog() {
+  log "Lemonade 公式モデルカタログを取得中..."
+  local json
+  if ! json="$(fetch_catalog_json)" || [[ -z "${json}" ]]; then
+    err "モデルカタログの取得に失敗しました (ネットワーク接続を確認してください)。"
+    exit 1
+  fi
+  if [[ ${#MODELS[@]} -gt 0 ]]; then
+    log "フィルタキーワード: ${MODELS[*]}"
+  fi
+  if ! printf '%s' "${json}" | json_tool catalog "${MODELS[@]:-}" 2>/dev/null; then
+    err "モデルカタログの解析に失敗しました。"
+    exit 1
+  fi
+  exit 0
+}
+
+if [[ "${ACTION}" == "catalog" ]]; then
+  show_catalog
+fi
 
 if [[ "${ACTION}" == "list" ]]; then
   list_models

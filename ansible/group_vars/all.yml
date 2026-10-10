@@ -293,6 +293,13 @@ lemonade_default_model_setup_retries: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_
 lemonade_default_model_setup_retry_interval: "{{ lookup('env', 'LEMONADE_DEFAULT_MODEL_SETUP_RETRY_INTERVAL') | default(2, true) | int }}"
 lemonade_pull_retries: "{{ lookup('env', 'LEMONADE_PULL_RETRIES') | default(10, true) | int }}"
 lemonade_pull_retry_interval: "{{ lookup('env', 'LEMONADE_PULL_RETRY_INTERVAL') | default(10, true) | int }}"
+# Lemonade 公式モデルカタログ (lemonade-pull.sh catalog サブコマンドの取得元)
+lemonade_catalog_github_api: "{{ lookup('env', 'LEMONADE_CATALOG_GITHUB_API') | default('https://api.github.com', true) }}"
+lemonade_catalog_raw_base: "{{ lookup('env', 'LEMONADE_CATALOG_RAW_BASE') | default('https://raw.githubusercontent.com', true) }}"
+lemonade_catalog_repo: "{{ lookup('env', 'LEMONADE_CATALOG_REPO') | default('lemonade-sdk/lemonade', true) }}"
+lemonade_catalog_path: "{{ lookup('env', 'LEMONADE_CATALOG_PATH') | default('src/cpp/resources/server_models.json', true) }}"
+lemonade_catalog_fallback_ref: "{{ lookup('env', 'LEMONADE_CATALOG_FALLBACK_REF') | default('main', true) }}"
+lemonade_catalog_timeout: "{{ lookup('env', 'LEMONADE_CATALOG_TIMEOUT') | default(30, true) | int }}"
 lemonade_ingress_enabled: "{{ lookup('env', 'LEMONADE_INGRESS_ENABLED') | default(true, true) | bool }}"
 # 公開 Ingress への SSO forwardAuth (Keycloak OIDC) 適用 (Phase 4 で注釈付与)
 lemonade_ingress_auth_enabled: "{{ lookup('env', 'LEMONADE_INGRESS_AUTH_ENABLED') | default(true, true) | bool }}"
