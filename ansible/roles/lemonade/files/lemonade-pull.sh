@@ -108,7 +108,7 @@ usage() {
   -h, --help               このヘルプメッセージを表示
 
 推奨モデル例 (HuggingFace GGUF リポジトリ):
-  Gemma-4-E4B-it-GGUF       標準 LLM モデル (config.env: LEMONADE_DEFAULT_MODEL)
+  Gemma-4-12B-it-GGUF       標準 LLM モデル (config.env: LEMONADE_DEFAULT_MODEL)
   Qwen3.8-27B-GGUF          高性能 27B チャットモデル (約 16 GB)
   Qwen3-4B-GGUF             軽量・高速 (数 GB)
   Qwen3-0.6B-GGUF           超軽量・テスト用
